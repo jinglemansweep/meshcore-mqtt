@@ -45,12 +45,12 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
-          type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
         labels: |
           org.opencontainers.image.title=MeshCore MQTT Bridge
           org.opencontainers.image.description=A robust bridge service that connects MeshCore devices to MQTT brokers
@@ -118,32 +118,38 @@ jobs:
 
     - name: Test image health check
       run: |
+        # Extract the first semver tag (e.g. 1.2.3) from metadata output
+        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+        echo "Using image tag: $IMAGE_TAG"
         # Pull the built image
-        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-        
+        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG
+
         # Run container with health check
         docker run -d --name test-container \
           -e MQTT_BROKER=test.mosquitto.org \
           -e MESHCORE_CONNECTION=serial \
           -e MESHCORE_ADDRESS=/dev/null \
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-        
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG
+
         # Wait for health check
         timeout 60 bash -c 'until docker inspect --format="{{.State.Health.Status}}" test-container | grep -q healthy; do sleep 2; done'
-        
+
         # Check logs
         docker logs test-container
-        
+
         # Cleanup
         docker stop test-container
         docker rm test-container
 
     - name: Test image CLI functionality
       run: |
+        # Extract the first semver tag (e.g. 1.2.3) from metadata output
+        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+        echo "Using image tag: $IMAGE_TAG"
         # Test CLI help command
-        docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} \
+        docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG \
           python -m meshcore_mqtt.main --help
-        
+
         # Test version import
-        docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} \
+        docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG \
           python -c "import meshcore_mqtt; print('Package imported successfully')"
