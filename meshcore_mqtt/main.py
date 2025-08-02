@@ -114,6 +114,13 @@ def setup_logging(level: str) -> None:
     help="MeshCore operation timeout in seconds (default: 5)",
 )
 @click.option(
+    "--meshcore-auto-fetch-restart-delay",
+    type=click.IntRange(1, 60),
+    default=5,
+    help="Delay in seconds before restarting auto-fetch after NO_MORE_MSGS "
+    "(default: 5)",
+)
+@click.option(
     "--meshcore-events",
     help="Comma-separated list of MeshCore event types to subscribe to",
 )
@@ -142,6 +149,7 @@ def main(
     meshcore_port: Optional[int],
     meshcore_baudrate: int,
     meshcore_timeout: int,
+    meshcore_auto_fetch_restart_delay: int,
     meshcore_events: Optional[str],
     log_level: str,
     env: bool,
@@ -195,6 +203,7 @@ def main(
                 port=meshcore_port,
                 baudrate=meshcore_baudrate,
                 timeout=meshcore_timeout,
+                auto_fetch_restart_delay=meshcore_auto_fetch_restart_delay,
                 events=(
                     events
                     if events is not None
@@ -223,6 +232,12 @@ def main(
             config.meshcore.port = meshcore_port
         if meshcore_baudrate != 115200:  # Only override if different from default
             config.meshcore.baudrate = meshcore_baudrate
+        if meshcore_timeout != 5:  # Only override if different from default
+            config.meshcore.timeout = meshcore_timeout
+        if (
+            meshcore_auto_fetch_restart_delay != 5
+        ):  # Only override if different from default
+            config.meshcore.auto_fetch_restart_delay = meshcore_auto_fetch_restart_delay
         if meshcore_events:
             config.meshcore.events = Config.parse_events_string(meshcore_events)
 

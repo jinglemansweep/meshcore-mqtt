@@ -46,6 +46,12 @@ class MeshCoreConfig(BaseModel):
     port: Optional[int] = Field(default=None, description="Device port for TCP")
     baudrate: int = Field(default=115200, description="Baudrate for serial connections")
     timeout: int = Field(default=5, gt=0, description="Operation timeout in seconds")
+    auto_fetch_restart_delay: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        description="Delay in seconds before restarting auto-fetch after NO_MORE_MSGS",
+    )
     events: List[str] = Field(
         default=[
             "CONTACT_MSG_RECV",
@@ -199,6 +205,9 @@ class Config(BaseModel):
             ),
             baudrate=int(os.getenv("MESHCORE_BAUDRATE", "115200")),
             timeout=int(os.getenv("MESHCORE_TIMEOUT", "5")),
+            auto_fetch_restart_delay=int(
+                os.getenv("MESHCORE_AUTO_FETCH_RESTART_DELAY", "5")
+            ),
             events=(
                 events
                 if events is not None

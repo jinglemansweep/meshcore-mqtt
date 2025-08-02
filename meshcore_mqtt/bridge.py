@@ -674,13 +674,14 @@ class MeshCoreMQTTBridge:
 
     async def _on_meshcore_no_more_msgs(self, event_data: Any) -> None:
         """Handle NO_MORE_MSGS events and restart auto-fetching."""
+        delay = self.config.meshcore.auto_fetch_restart_delay
         self.logger.info(
             f"Received NO_MORE_MSGS event: {event_data}, "
-            f"restarting auto-fetch in 5 seconds"
+            f"restarting auto-fetch in {delay} seconds"
         )
 
-        # Wait a bit before restarting to avoid tight loops
-        await asyncio.sleep(5)
+        # Wait before restarting to avoid tight loops (configurable delay)
+        await asyncio.sleep(delay)
 
         if self.meshcore and self._running:
             try:
