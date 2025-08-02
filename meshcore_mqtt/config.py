@@ -58,6 +58,7 @@ class MeshCoreConfig(BaseModel):
             "DEVICE_INFO",
             "BATTERY",
             "NEW_CONTACT",
+            "ADVERTISEMENT",
         ],
         description="List of MeshCore event types to subscribe to",
     )

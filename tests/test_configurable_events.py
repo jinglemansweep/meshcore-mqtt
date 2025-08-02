@@ -31,6 +31,7 @@ class TestConfigurableEvents:
             "DEVICE_INFO",
             "BATTERY",
             "NEW_CONTACT",
+            "ADVERTISEMENT",
         ]
 
         assert config.events == expected_events
@@ -189,10 +190,10 @@ class TestConfigurableEvents:
         monkeypatch.setenv("MQTT_BROKER", "localhost")
         monkeypatch.setenv("MESHCORE_CONNECTION", "tcp")
         monkeypatch.setenv("MESHCORE_ADDRESS", "127.0.0.1")
-        monkeypatch.setenv("MESHCORE_EVENTS", "CONNECTED,BATTERY,NEW_CONTACT")
+        monkeypatch.setenv("MESHCORE_EVENTS", "CONNECTED,BATTERY,NEW_CONTACT,ADVERTISEMENT")
 
         config = Config.from_env()
-        assert config.meshcore.events == ["CONNECTED", "BATTERY", "NEW_CONTACT"]
+        assert config.meshcore.events == ["CONNECTED", "BATTERY", "NEW_CONTACT", "ADVERTISEMENT"]
 
     def test_events_environment_variable_fallback(
         self, monkeypatch: pytest.MonkeyPatch
@@ -216,6 +217,7 @@ class TestConfigurableEvents:
             "DEVICE_INFO",
             "BATTERY",
             "NEW_CONTACT",
+            "ADVERTISEMENT",
         ]
         assert config.meshcore.events == expected_events
 
