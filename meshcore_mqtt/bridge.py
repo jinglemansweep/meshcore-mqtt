@@ -108,14 +108,14 @@ class MeshCoreMQTTBridge:
         """Set up MQTT client connection."""
         self.logger.info("Setting up MQTT connection")
 
-        # Generate a unique client ID for persistent sessions
+        # Generate a unique client ID for MQTT connection
         client_id = f"meshcore-mqtt-{uuid.uuid4().hex[:8]}"
         self.logger.debug(f"Using MQTT client ID: {client_id}")
 
         self.mqtt_client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=client_id,
-            clean_session=False,  # Use persistent session for better reliability
+            clean_session=True,  # Use clean session to avoid broker issues
             reconnect_on_failure=True,
         )
 
@@ -133,12 +133,12 @@ class MeshCoreMQTTBridge:
             )
 
         # Set connection parameters for better stability
-        self.mqtt_client.keepalive = 30  # Reduced from 60 for faster detection
-        self.mqtt_client.max_inflight_messages_set(20)
-        self.mqtt_client.max_queued_messages_set(0)  # Unlimited queue
+        self.mqtt_client.keepalive = 60  # Back to standard 60s for stability
+        self.mqtt_client.max_inflight_messages_set(1)  # Limit to 1 message at a time
+        self.mqtt_client.max_queued_messages_set(100)  # Limit queue size
 
         # Enable automatic reconnection with retry parameters
-        self.mqtt_client.reconnect_delay_set(min_delay=1, max_delay=120)
+        self.mqtt_client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         # Connect to MQTT broker with retry logic
         await self._connect_mqtt_with_retry()
@@ -155,7 +155,7 @@ class MeshCoreMQTTBridge:
                     await asyncio.get_event_loop().run_in_executor(
                         None,
                         lambda: self.mqtt_client.connect(  # type: ignore
-                            self.config.mqtt.broker, self.config.mqtt.port, 30
+                            self.config.mqtt.broker, self.config.mqtt.port, 60
                         ),
                     )
                     self.logger.info(
