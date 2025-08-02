@@ -54,7 +54,7 @@ jobs:
       run: |
         echo "::group::MyPy type checking"
         # Install package dependencies for type checking
-        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
         mypy meshcore_mqtt/ tests/
         echo "::endgroup::"
 
