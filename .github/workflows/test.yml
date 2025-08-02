@@ -72,7 +72,7 @@ jobs:
       run: |
         # Test CLI help
         python -m meshcore_mqtt.main --help
-        
+
         # Test version info (if available)
         python -c "import meshcore_mqtt; print('Package version check passed')"
 
@@ -104,7 +104,7 @@ jobs:
             print(f'✓ Contains {len(config)} top-level keys')
         "
 
-    - name: Validate YAML configuration examples  
+    - name: Validate YAML configuration examples
       run: |
         python -c "
         import yaml
@@ -118,13 +118,13 @@ jobs:
       run: |
         python -c "
         from meshcore_mqtt.config import Config
-        
+
         # Test JSON config loading
         config_json = Config.from_file('config.example.json')
         print('✓ JSON configuration loads successfully')
         print(f'✓ MQTT broker: {config_json.mqtt.broker}')
         print(f'✓ Events configured: {len(config_json.meshcore.events)}')
-        
+
         # Test YAML config loading
         config_yaml = Config.from_file('config.example.yaml')
         print('✓ YAML configuration loads successfully')

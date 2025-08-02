@@ -206,7 +206,7 @@ The bridge can subscribe to various MeshCore event types. You can configure whic
 ### Default Events
 If no events are specified, the bridge subscribes to these default events:
 - `CONTACT_MSG_RECV` - Contact messages received
-- `CHANNEL_MSG_RECV` - Channel messages received  
+- `CHANNEL_MSG_RECV` - Channel messages received
 - `CONNECTED` - Device connection events
 - `DISCONNECTED` - Device disconnection events
 - `LOGIN_SUCCESS` - Successful authentication
@@ -275,7 +275,7 @@ The bridge publishes to different MQTT topics based on the configured event type
 
 ### Core Topics
 - `{prefix}/message` - Messages from CONTACT_MSG_RECV and CHANNEL_MSG_RECV events
-- `{prefix}/status` - Connection status from CONNECTED/DISCONNECTED events  
+- `{prefix}/status` - Connection status from CONNECTED/DISCONNECTED events
 - `{prefix}/command/{type}` - Commands to MeshCore device (subscribed)
 
 ### Event-Specific Topics
@@ -364,7 +364,7 @@ cp .env.docker.example .env.docker
 # Edit .env.docker with your configuration
 
 # Run with environment file (includes device mount for serial)
-docker run -d \  
+docker run -d \
   --name meshcore-mqtt-bridge \
   --restart unless-stopped \
   --device=/dev/ttyUSB0:/dev/ttyUSB0 \

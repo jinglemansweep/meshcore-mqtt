@@ -159,7 +159,7 @@ python -m meshcore_mqtt.main --env
 async def _on_meshcore_[event_type](self, event_data: Any) -> None:
     """Handle [event_type] events."""
     self.logger.debug(f"Received MeshCore {event_type}")
-    
+
     topic = f"{self.config.mqtt.topic_prefix}/[topic_name]"
     payload = self._serialize_to_json(event_data)
     self._safe_mqtt_publish(topic, payload)

@@ -108,7 +108,7 @@ class TestMeshCoreMQTTBridge:
 
         # Verify MQTT client setup
         assert bridge.mqtt_client is not None
-        mock_mqtt_instance.connect.assert_called_once_with("localhost", 1883, 60)
+        mock_mqtt_instance.connect.assert_called_once_with("localhost", 1883, 30)
 
     def test_mqtt_auth_setup(self) -> None:
         """Test MQTT setup with authentication."""

@@ -109,7 +109,7 @@ class MeshCoreMQTTBridge:
 
         self.mqtt_client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-            clean_session=True,
+            clean_session=False,  # Use persistent session for better reliability
             reconnect_on_failure=True,
         )
 
@@ -126,27 +126,49 @@ class MeshCoreMQTTBridge:
                 self.config.mqtt.username, self.config.mqtt.password
             )
 
-        # Set keepalive and other connection parameters for stability
-        self.mqtt_client.keepalive = 60
+        # Set connection parameters for better stability
+        self.mqtt_client.keepalive = 30  # Reduced from 60 for faster detection
         self.mqtt_client.max_inflight_messages_set(20)
         self.mqtt_client.max_queued_messages_set(0)  # Unlimited queue
 
-        # Connect to MQTT broker
-        try:
-            if self.mqtt_client:
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self.mqtt_client.connect(  # type: ignore
-                        self.config.mqtt.broker, self.config.mqtt.port, 60
-                    ),
+        # Enable automatic reconnection with retry parameters
+        self.mqtt_client.reconnect_delay_set(min_delay=1, max_delay=120)
+
+        # Connect to MQTT broker with retry logic
+        await self._connect_mqtt_with_retry()
+
+        # Start MQTT loop in a separate task
+        mqtt_task = asyncio.create_task(self._mqtt_loop())
+        self._tasks.append(mqtt_task)
+
+    async def _connect_mqtt_with_retry(self, max_retries: int = 5) -> None:
+        """Connect to MQTT broker with retry logic."""
+        for attempt in range(max_retries):
+            try:
+                if self.mqtt_client:
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: self.mqtt_client.connect(  # type: ignore
+                            self.config.mqtt.broker, self.config.mqtt.port, 30
+                        ),
+                    )
+                    self.logger.info(
+                        f"Connected to MQTT broker on attempt {attempt + 1}"
+                    )
+                    return
+            except Exception as e:
+                self.logger.warning(
+                    f"MQTT connection attempt {attempt + 1} failed: {e}"
                 )
-
-            # Start MQTT loop in a separate task
-            mqtt_task = asyncio.create_task(self._mqtt_loop())
-            self._tasks.append(mqtt_task)
-
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect to MQTT broker: {e}")
+                if attempt < max_retries - 1:
+                    delay = min(2**attempt, 30)  # Exponential backoff, max 30s
+                    self.logger.info(f"Retrying MQTT connection in {delay} seconds")
+                    await asyncio.sleep(delay)
+                else:
+                    raise RuntimeError(
+                        f"Failed to connect to MQTT broker after {max_retries} "
+                        f"attempts: {e}"
+                    )
 
     async def _setup_meshcore(self) -> None:
         """Set up MeshCore connection."""
@@ -296,9 +318,44 @@ class MeshCoreMQTTBridge:
     ) -> None:
         """Handle MQTT disconnection."""
         if rc != 0:
-            self.logger.warning(f"Unexpected MQTT disconnection: {rc}")
+            self.logger.warning(
+                f"Unexpected MQTT disconnection: {mqtt.error_string(rc)}"
+            )
+            # Schedule reconnection attempt if bridge is still running
+            if self._running:
+                self.logger.info("Scheduling MQTT reconnection...")
+                asyncio.create_task(self._reconnect_mqtt())
         else:
             self.logger.info("MQTT client disconnected cleanly")
+
+    async def _reconnect_mqtt(self) -> None:
+        """Attempt to reconnect to MQTT broker."""
+        max_retries = 10
+        for attempt in range(max_retries):
+            if not self._running:
+                return
+
+            try:
+                await asyncio.sleep(min(2**attempt, 30))  # Exponential backoff
+
+                if self.mqtt_client and not self.mqtt_client.is_connected():
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, self.mqtt_client.reconnect
+                    )
+                    self.logger.info(
+                        f"MQTT reconnection successful on attempt {attempt + 1}"
+                    )
+                    return
+                elif self.mqtt_client and self.mqtt_client.is_connected():
+                    self.logger.info("MQTT already reconnected")
+                    return
+
+            except Exception as e:
+                self.logger.warning(
+                    f"MQTT reconnection attempt {attempt + 1} failed: {e}"
+                )
+
+        self.logger.error(f"Failed to reconnect to MQTT after {max_retries} attempts")
 
     def _on_mqtt_message(
         self, client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage
@@ -407,12 +464,22 @@ class MeshCoreMQTTBridge:
         qos: Optional[int] = None,
         retain: Optional[bool] = None,
     ) -> bool:
-        """Safely publish to MQTT with error handling."""
+        """Safely publish to MQTT with error handling and reconnection."""
         if not self.mqtt_client:
             self.logger.error("MQTT client not initialized")
             return False
 
         try:
+            # Check if client is connected
+            if not self.mqtt_client.is_connected():
+                self.logger.warning(
+                    f"MQTT client not connected, skipping publish to {topic}"
+                )
+                # Trigger reconnection if bridge is still running
+                if self._running:
+                    asyncio.create_task(self._reconnect_mqtt())
+                return False
+
             qos = qos if qos is not None else self.config.mqtt.qos
             retain = retain if retain is not None else self.config.mqtt.retain
 
@@ -421,13 +488,30 @@ class MeshCoreMQTTBridge:
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
                 self.logger.debug(f"Published to MQTT topic {topic}")
                 return True
+            elif result.rc == mqtt.MQTT_ERR_NO_CONN:
+                self.logger.warning(f"MQTT not connected while publishing to {topic}")
+                # Trigger reconnection if bridge is still running
+                if self._running:
+                    asyncio.create_task(self._reconnect_mqtt())
+                return False
             else:
                 self.logger.error(
-                    f"Failed to publish to MQTT topic {topic}: {result.rc}"
+                    f"Failed to publish to MQTT topic {topic}: "
+                    f"{mqtt.error_string(result.rc)} ({result.rc})"
                 )
                 return False
+
+        except (ConnectionError, OSError, BrokenPipeError) as e:
+            self.logger.error(f"Connection error during MQTT publish to {topic}: {e}")
+            # Trigger reconnection for connection-related errors
+            if self._running:
+                self.logger.info("Triggering MQTT reconnection due to connection error")
+                asyncio.create_task(self._reconnect_mqtt())
+            return False
         except Exception as e:
-            self.logger.error(f"Exception during MQTT publish to {topic}: {e}")
+            self.logger.error(
+                f"Unexpected exception during MQTT publish to {topic}: {e}"
+            )
             return False
 
     async def _forward_mqtt_to_meshcore(self, command_type: str, payload: str) -> None:

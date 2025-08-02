@@ -38,7 +38,7 @@ jobs:
         black --check --diff --color meshcore_mqtt/ tests/
         echo "::endgroup::"
 
-    - name: Check import sorting with isort  
+    - name: Check import sorting with isort
       run: |
         echo "::group::Import sorting check"
         isort --check-only --diff meshcore_mqtt/ tests/
