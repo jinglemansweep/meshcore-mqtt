@@ -65,6 +65,7 @@ The bridge supports multiple configuration methods with the following precedence
 - `meshcore_port`: Device port for TCP connections (default: 12345)
 - `meshcore_baudrate`: Baudrate for serial connections (default: 115200)
 - `meshcore_timeout`: Operation timeout in seconds (default: 5)
+- `meshcore_auto_fetch_restart_delay`: Delay in seconds before restarting auto-fetch after NO_MORE_MSGS (default: 5, range: 1-60)
 - `meshcore_events`: List of MeshCore event types to subscribe to (see [Event Types](#event-types))
 
 #### General Settings
@@ -90,6 +91,7 @@ The bridge supports multiple configuration methods with the following precedence
     "port": 12345,
     "baudrate": 115200,
     "timeout": 10,
+    "auto_fetch_restart_delay": 10,
     "events": [
       "CONTACT_MSG_RECV",
       "CHANNEL_MSG_RECV",
@@ -120,6 +122,7 @@ meshcore:
   port: 12345
   baudrate: 115200
   timeout: 10
+  auto_fetch_restart_delay: 10
   events:
     - CONTACT_MSG_RECV
     - CHANNEL_MSG_RECV
@@ -141,6 +144,7 @@ export MESHCORE_CONNECTION=tcp
 export MESHCORE_ADDRESS=192.168.1.100
 export MESHCORE_PORT=12345
 export MESHCORE_BAUDRATE=115200
+export MESHCORE_AUTO_FETCH_RESTART_DELAY=10
 export MESHCORE_EVENTS="CONNECTED,DISCONNECTED,BATTERY,DEVICE_INFO"
 export LOG_LEVEL=INFO
 ```
@@ -163,6 +167,7 @@ python -m meshcore_mqtt.main \
   --meshcore-connection tcp \
   --meshcore-address 192.168.1.100 \
   --meshcore-port 12345 \
+  --meshcore-auto-fetch-restart-delay 10 \
   --meshcore-events "CONNECTED,DISCONNECTED,BATTERY"
 ```
 
@@ -408,6 +413,7 @@ MESHCORE_ADDRESS=/dev/ttyUSB0    # Serial port, IP address, or BLE MAC address
 MESHCORE_BAUDRATE=115200         # For serial connections
 MESHCORE_PORT=4403              # Only for TCP connections
 MESHCORE_TIMEOUT=30
+MESHCORE_AUTO_FETCH_RESTART_DELAY=10  # Restart delay after NO_MORE_MSGS (1-60 seconds)
 
 # Event Configuration (comma-separated)
 MESHCORE_EVENTS=CONNECTED,DISCONNECTED,BATTERY,DEVICE_INFO

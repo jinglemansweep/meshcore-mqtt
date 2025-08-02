@@ -14,6 +14,7 @@
     "port": 12345,
     "baudrate": 115200,
     "timeout": 5,
+    "auto_fetch_restart_delay": 5,
     "events": [
       "CONTACT_MSG_RECV",
       "CHANNEL_MSG_RECV",

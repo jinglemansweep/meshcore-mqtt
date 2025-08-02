@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -39,6 +40,15 @@ class MeshCoreMQTTBridge:
         self._running = False
         self._tasks: list[asyncio.Task[Any]] = []
 
+        # Connection health monitoring
+        self._meshcore_connected = False
+        self._mqtt_connected = False
+        self._last_meshcore_activity: Optional[float] = None
+        self._last_mqtt_activity: Optional[float] = None
+        self._auto_fetch_running = False
+        self._reconnect_attempts = 0
+        self._max_reconnect_attempts = 10
+
     async def start(self) -> None:
         """Start the bridge service."""
         if self._running:
@@ -56,6 +66,15 @@ class MeshCoreMQTTBridge:
 
             # Start the bridge loops
             self._running = True
+
+            # Start connection monitoring task
+            monitor_task = asyncio.create_task(self._monitor_connections())
+            self._tasks.append(monitor_task)
+
+            # Start persistent auto-fetch task
+            autofetch_task = asyncio.create_task(self._maintain_auto_fetch())
+            self._tasks.append(autofetch_task)
+
             await self._run_bridge()
 
         except Exception as e:
@@ -256,10 +275,13 @@ class MeshCoreMQTTBridge:
         try:
             await self.meshcore.connect()
             self.logger.info("Connected to MeshCore device")
+            self._meshcore_connected = True
+            self._last_meshcore_activity = time.time()
 
             # Start auto message fetching to receive events
             await self.meshcore.start_auto_message_fetching()
             self.logger.info("Started auto message fetching")
+            self._auto_fetch_running = True
         except Exception as e:
             raise RuntimeError(f"Failed to connect to MeshCore device: {e}")
 
@@ -330,12 +352,15 @@ class MeshCoreMQTTBridge:
         """Handle MQTT connection."""
         if rc == 0:
             self.logger.info("Connected to MQTT broker")
+            self._mqtt_connected = True
+            self._last_mqtt_activity = time.time()
             # Resubscribe to command topics on reconnect
             command_topic = f"{self.config.mqtt.topic_prefix}/command/+"
             client.subscribe(command_topic, self.config.mqtt.qos)
             self.logger.info(f"Subscribed to MQTT topic: {command_topic}")
         else:
             self.logger.error(f"Failed to connect to MQTT broker: {rc}")
+            self._mqtt_connected = False
 
     def _on_mqtt_disconnect(
         self,
@@ -346,6 +371,7 @@ class MeshCoreMQTTBridge:
         properties: Any = None,
     ) -> None:
         """Handle MQTT disconnection."""
+        self._mqtt_connected = False
         if rc != 0:
             self.logger.warning(
                 f"Unexpected MQTT disconnection: {mqtt.error_string(rc)}"
@@ -387,6 +413,177 @@ class MeshCoreMQTTBridge:
                 )
 
         self.logger.error(f"Failed to reconnect to MQTT after {max_retries} attempts")
+
+    async def _monitor_connections(self) -> None:
+        """Monitor both MeshCore and MQTT connections and attempt recovery."""
+        self.logger.info("Starting connection monitoring")
+
+        while self._running:
+            try:
+                current_time = time.time()
+
+                # Check MQTT connection
+                if self.mqtt_client and not self.mqtt_client.is_connected():
+                    if self._mqtt_connected:
+                        self.logger.warning("MQTT connection lost, attempting recovery")
+                        self._mqtt_connected = False
+                        asyncio.create_task(self._recover_mqtt_connection())
+                elif self.mqtt_client and self.mqtt_client.is_connected():
+                    if not self._mqtt_connected:
+                        self.logger.info("MQTT connection restored")
+                        self._mqtt_connected = True
+                        self._last_mqtt_activity = current_time
+
+                # Check MeshCore connection
+                meshcore_healthy = await self._check_meshcore_health()
+                if not meshcore_healthy and self._meshcore_connected:
+                    self.logger.warning("MeshCore connection lost, attempting recovery")
+                    self._meshcore_connected = False
+                    asyncio.create_task(self._recover_meshcore_connection())
+                elif meshcore_healthy and not self._meshcore_connected:
+                    self.logger.info("MeshCore connection restored")
+                    self._meshcore_connected = True
+                    self._last_meshcore_activity = current_time
+
+                # Check for stale connections (no activity for 5 minutes)
+                if (
+                    self._last_meshcore_activity
+                    and current_time - self._last_meshcore_activity > 300
+                ):
+                    self.logger.warning(
+                        "MeshCore connection appears stale, forcing reconnection"
+                    )
+                    asyncio.create_task(self._recover_meshcore_connection())
+
+                if (
+                    self._last_mqtt_activity
+                    and current_time - self._last_mqtt_activity > 300
+                ):
+                    self.logger.warning(
+                        "MQTT connection appears stale, forcing reconnection"
+                    )
+                    asyncio.create_task(self._recover_mqtt_connection())
+
+                # Sleep before next check
+                await asyncio.sleep(30)  # Check every 30 seconds
+
+            except Exception as e:
+                self.logger.error(f"Error in connection monitoring: {e}")
+                await asyncio.sleep(30)
+
+    async def _check_meshcore_health(self) -> bool:
+        """Check if MeshCore connection is healthy."""
+        if not self.meshcore:
+            return False
+
+        try:
+            # Try a simple operation to check if connection is alive
+            # This is a basic check - in a real implementation you might
+            # want to send a ping or status request
+            return (
+                hasattr(self.meshcore, "connection_manager")
+                and self.meshcore.connection_manager is not None
+            )
+        except Exception:
+            return False
+
+    async def _recover_mqtt_connection(self) -> None:
+        """Attempt to recover MQTT connection."""
+        if self._reconnect_attempts >= self._max_reconnect_attempts:
+            self.logger.error("Max MQTT reconnection attempts reached")
+            return
+
+        self._reconnect_attempts += 1
+        self.logger.info(
+            f"Attempting MQTT recovery (attempt {self._reconnect_attempts})"
+        )
+
+        try:
+            # Stop existing connection
+            if self.mqtt_client:
+                try:
+                    if hasattr(self.mqtt_client, "_loop_started"):
+                        self.mqtt_client.loop_stop()
+                        delattr(self.mqtt_client, "_loop_started")
+                    if self.mqtt_client.is_connected():
+                        self.mqtt_client.disconnect()
+                except Exception as e:
+                    self.logger.debug(f"Error stopping old MQTT client: {e}")
+
+            # Wait before attempting reconnection
+            await asyncio.sleep(min(self._reconnect_attempts * 2, 30))
+
+            # Re-setup MQTT connection
+            await self._setup_mqtt()
+            self._reconnect_attempts = 0  # Reset on success
+            self.logger.info("MQTT connection recovery successful")
+
+        except Exception as e:
+            self.logger.error(f"MQTT recovery attempt failed: {e}")
+            if self._reconnect_attempts < self._max_reconnect_attempts:
+                await asyncio.sleep(30)
+                asyncio.create_task(self._recover_mqtt_connection())
+
+    async def _recover_meshcore_connection(self) -> None:
+        """Attempt to recover MeshCore connection."""
+        if self._reconnect_attempts >= self._max_reconnect_attempts:
+            self.logger.error("Max MeshCore reconnection attempts reached")
+            return
+
+        self._reconnect_attempts += 1
+        self.logger.info(
+            f"Attempting MeshCore recovery (attempt {self._reconnect_attempts})"
+        )
+
+        try:
+            # Stop existing connection
+            if self.meshcore:
+                try:
+                    await self.meshcore.stop_auto_message_fetching()
+                    await self.meshcore.disconnect()
+                except Exception as e:
+                    self.logger.debug(f"Error stopping old MeshCore connection: {e}")
+
+            # Wait before attempting reconnection
+            await asyncio.sleep(min(self._reconnect_attempts * 2, 30))
+
+            # Re-setup MeshCore connection
+            await self._setup_meshcore()
+            self._reconnect_attempts = 0  # Reset on success
+            self.logger.info("MeshCore connection recovery successful")
+
+        except Exception as e:
+            self.logger.error(f"MeshCore recovery attempt failed: {e}")
+            if self._reconnect_attempts < self._max_reconnect_attempts:
+                await asyncio.sleep(30)
+                asyncio.create_task(self._recover_meshcore_connection())
+
+    async def _maintain_auto_fetch(self) -> None:
+        """Continuously maintain auto-fetch, restarting if it stops."""
+        self.logger.info("Starting persistent auto-fetch maintenance")
+
+        while self._running:
+            try:
+                if (
+                    self.meshcore
+                    and self._meshcore_connected
+                    and not self._auto_fetch_running
+                ):
+                    self.logger.info("Starting/restarting MeshCore auto-fetch")
+                    try:
+                        await self.meshcore.start_auto_message_fetching()
+                        self._auto_fetch_running = True
+                        self._last_meshcore_activity = time.time()
+                    except Exception as e:
+                        self.logger.error(f"Failed to start auto-fetch: {e}")
+                        self._auto_fetch_running = False
+
+                # Check if auto-fetch is still running every minute
+                await asyncio.sleep(60)
+
+            except Exception as e:
+                self.logger.error(f"Error in auto-fetch maintenance: {e}")
+                await asyncio.sleep(60)
 
     def _on_mqtt_message(
         self, client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage
@@ -527,6 +724,8 @@ class MeshCoreMQTTBridge:
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
                 self.logger.info(f"Successfully published to MQTT topic: {topic}")
+                # Update MQTT activity timestamp
+                self._last_mqtt_activity = time.time()
                 # Wait for message to be sent if QoS > 0
                 if qos > 0:
                     result.wait_for_publish(timeout=5.0)
@@ -585,6 +784,9 @@ class MeshCoreMQTTBridge:
     async def _on_meshcore_message(self, event_data: Any) -> None:
         """Handle messages from MeshCore device."""
         try:
+            # Update activity timestamp
+            self._last_meshcore_activity = time.time()
+
             # Convert MeshCore message to MQTT topic and payload
             topic = f"{self.config.mqtt.topic_prefix}/message"
             payload = self._serialize_to_json(event_data)
@@ -604,6 +806,8 @@ class MeshCoreMQTTBridge:
     async def _on_meshcore_connected(self, event_data: Any) -> None:
         """Handle MeshCore connection events."""
         self.logger.info("MeshCore device connected")
+        self._meshcore_connected = True
+        self._last_meshcore_activity = time.time()
 
         status_topic = f"{self.config.mqtt.topic_prefix}/status"
         self._safe_mqtt_publish(status_topic, "connected", retain=True)
@@ -611,6 +815,8 @@ class MeshCoreMQTTBridge:
     async def _on_meshcore_disconnected(self, event_data: Any) -> None:
         """Handle MeshCore disconnection events."""
         self.logger.warning("MeshCore device disconnected")
+        self._meshcore_connected = False
+        self._auto_fetch_running = False
 
         status_topic = f"{self.config.mqtt.topic_prefix}/status"
         self._safe_mqtt_publish(status_topic, "disconnected", retain=True)
@@ -673,23 +879,17 @@ class MeshCoreMQTTBridge:
         self._safe_mqtt_publish(topic, payload)
 
     async def _on_meshcore_no_more_msgs(self, event_data: Any) -> None:
-        """Handle NO_MORE_MSGS events and restart auto-fetching."""
-        delay = self.config.meshcore.auto_fetch_restart_delay
+        """Handle NO_MORE_MSGS events - mark auto-fetch as stopped."""
+        self.logger.info(f"Received NO_MORE_MSGS event: {event_data}")
         self.logger.info(
-            f"Received NO_MORE_MSGS event: {event_data}, "
-            f"restarting auto-fetch in {delay} seconds"
+            "Auto-fetch has stopped - persistent maintenance will restart it"
         )
 
-        # Wait before restarting to avoid tight loops (configurable delay)
-        await asyncio.sleep(delay)
+        # Mark auto-fetch as stopped so the maintenance task will restart it
+        self._auto_fetch_running = False
 
-        if self.meshcore and self._running:
-            try:
-                # Restart auto message fetching
-                await self.meshcore.start_auto_message_fetching()
-                self.logger.info("Restarted auto message fetching")
-            except Exception as e:
-                self.logger.error(f"Failed to restart auto message fetching: {e}")
+        # Update activity timestamp
+        self._last_meshcore_activity = time.time()
 
     async def _on_meshcore_debug_event(self, event_data: Any) -> None:
         """Handle any other MeshCore events for debugging."""

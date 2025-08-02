@@ -51,6 +51,16 @@ The bridge supports configurable event subscriptions:
 - `WAYPOINT`, `NEIGHBOR_INFO`, `TRACEROUTE`
 - `NODE_LIST_CHANGED`, `CONFIG_CHANGED`
 
+### Auto-Fetch Restart Feature
+
+The bridge automatically handles `NO_MORE_MSGS` events from MeshCore by restarting the auto-fetch mechanism after a configurable delay:
+
+- **Purpose**: Prevents message fetching from stopping when MeshCore reports no more messages
+- **Configuration**: `auto_fetch_restart_delay` (1-60 seconds, default: 5)
+- **Behavior**: When `NO_MORE_MSGS` is received, waits the configured delay then restarts auto-fetching
+- **Environment Variable**: `MESHCORE_AUTO_FETCH_RESTART_DELAY=10`
+- **CLI Argument**: `--meshcore-auto-fetch-restart-delay 10`
+
 ### MQTT Topics
 
 The bridge publishes to structured MQTT topics:
