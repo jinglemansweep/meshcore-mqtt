@@ -13,11 +13,37 @@ from .config import Config, ConnectionType
 
 def setup_logging(level: str) -> None:
     """Set up logging configuration."""
+    log_level = getattr(logging, level)
+    
+    # Configure root logger
     logging.basicConfig(
-        level=getattr(logging, level),
+        level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
+        force=True,  # Override any existing configuration
     )
+    
+    # Ensure MeshCore and other third-party libraries respect our log level
+    # Set common third-party library loggers
+    third_party_loggers = [
+        "meshcore",
+        "paho",
+        "paho.mqtt",
+        "paho.mqtt.client", 
+        "asyncio",
+    ]
+    
+    for logger_name in third_party_loggers:
+        logging.getLogger(logger_name).setLevel(log_level)
+    
+    # Set urllib3 and requests to WARNING to reduce noise unless we're in DEBUG mode
+    if level != "DEBUG":
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+        logging.getLogger("requests").setLevel(logging.WARNING)
+    else:
+        # In DEBUG mode, let urllib3 and requests use the same log level
+        logging.getLogger("urllib3").setLevel(log_level)
+        logging.getLogger("requests").setLevel(log_level)
 
 
 @click.command()
@@ -88,6 +114,10 @@ def setup_logging(level: str) -> None:
     help="MeshCore operation timeout in seconds (default: 5)",
 )
 @click.option(
+    "--meshcore-events",
+    help="Comma-separated list of MeshCore event types to subscribe to",
+)
+@click.option(
     "--log-level",
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
     default="INFO",
@@ -112,6 +142,7 @@ def main(
     meshcore_port: Optional[int],
     meshcore_baudrate: int,
     meshcore_timeout: int,
+    meshcore_events: Optional[str],
     log_level: str,
     env: bool,
 ) -> None:
@@ -153,12 +184,22 @@ def main(
                 retain=mqtt_retain,
             )
 
+            # Parse events if provided
+            events = (
+                Config.parse_events_string(meshcore_events) if meshcore_events else None
+            )
+
             meshcore_config = MeshCoreConfig(
                 connection_type=ConnectionType(meshcore_connection),
                 address=meshcore_address,
                 port=meshcore_port,
                 baudrate=meshcore_baudrate,
                 timeout=meshcore_timeout,
+                events=(
+                    events
+                    if events is not None
+                    else MeshCoreConfig.model_fields["events"].default
+                ),
             )
 
             config = Config(
@@ -182,6 +223,8 @@ def main(
             config.meshcore.port = meshcore_port
         if meshcore_baudrate != 115200:  # Only override if different from default
             config.meshcore.baudrate = meshcore_baudrate
+        if meshcore_events:
+            config.meshcore.events = Config.parse_events_string(meshcore_events)
 
         # Set up logging
         setup_logging(config.log_level)

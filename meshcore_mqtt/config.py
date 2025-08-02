@@ -4,7 +4,7 @@ import json
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -46,6 +46,21 @@ class MeshCoreConfig(BaseModel):
     port: Optional[int] = Field(default=None, description="Device port for TCP")
     baudrate: int = Field(default=115200, description="Baudrate for serial connections")
     timeout: int = Field(default=5, gt=0, description="Operation timeout in seconds")
+    events: List[str] = Field(
+        default=[
+            "CONTACT_MSG_RECV",
+            "CHANNEL_MSG_RECV",
+            "CONNECTED",
+            "DISCONNECTED",
+            "LOGIN_SUCCESS",
+            "LOGIN_FAILED",
+            "MESSAGES_WAITING",
+            "DEVICE_INFO",
+            "BATTERY",
+            "NEW_CONTACT",
+        ],
+        description="List of MeshCore event types to subscribe to",
+    )
 
     @field_validator("port")
     @classmethod
@@ -62,6 +77,50 @@ class MeshCoreConfig(BaseModel):
             raise ValueError("Port must be between 1 and 65535")
 
         return v
+
+    @field_validator("events")
+    @classmethod
+    def validate_events(cls, v: List[str]) -> List[str]:
+        """Validate event types are valid MeshCore EventType names."""
+        # Normalize to uppercase for case-insensitive validation
+        normalized_events = [event.upper() for event in v]
+
+        # Common MeshCore event types (based on typical mesh networking events)
+        valid_events = {
+            "CONTACT_MSG_RECV",
+            "CHANNEL_MSG_RECV",
+            "CONNECTED",
+            "DISCONNECTED",
+            "LOGIN_SUCCESS",
+            "LOGIN_FAILED",
+            "MESSAGES_WAITING",
+            "DEVICE_INFO",
+            "BATTERY",
+            "NEW_CONTACT",
+            "NODE_LIST_CHANGED",
+            "CONFIG_CHANGED",
+            "TELEMETRY",
+            "POSITION",
+            "USER",
+            "ROUTING",
+            "ADMIN",
+            "TEXT_MESSAGE_RX",
+            "TEXT_MESSAGE_TX",
+            "WAYPOINT",
+            "NEIGHBOR_INFO",
+            "TRACEROUTE",
+        }
+
+        invalid_events = [
+            event for event in normalized_events if event not in valid_events
+        ]
+        if invalid_events:
+            raise ValueError(
+                f"Invalid event types: {invalid_events}. "
+                f"Valid events: {sorted(valid_events)}"
+            )
+
+        return normalized_events
 
 
 class Config(BaseModel):
@@ -103,6 +162,15 @@ class Config(BaseModel):
         return cls(**data)
 
     @classmethod
+    def parse_events_string(cls, events_str: str) -> List[str]:
+        """Parse comma-separated event string into list."""
+        if not events_str or events_str.strip() == "":
+            return []
+        return [
+            event.strip().upper() for event in events_str.split(",") if event.strip()
+        ]
+
+    @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables."""
         mqtt_config = MQTTConfig(
@@ -115,6 +183,10 @@ class Config(BaseModel):
             retain=os.getenv("MQTT_RETAIN", "false").lower() == "true",
         )
 
+        # Parse events from environment variable if provided
+        events_env = os.getenv("MESHCORE_EVENTS")
+        events = cls.parse_events_string(events_env) if events_env else None
+
         meshcore_config = MeshCoreConfig(
             connection_type=ConnectionType(os.getenv("MESHCORE_CONNECTION", "tcp")),
             address=os.getenv("MESHCORE_ADDRESS", ""),
@@ -125,6 +197,11 @@ class Config(BaseModel):
             ),
             baudrate=int(os.getenv("MESHCORE_BAUDRATE", "115200")),
             timeout=int(os.getenv("MESHCORE_TIMEOUT", "5")),
+            events=(
+                events
+                if events is not None
+                else MeshCoreConfig.model_fields["events"].default
+            ),
         )
 
         return cls(

@@ -170,47 +170,50 @@ class MeshCoreMQTTBridge:
 
         # Initialize connection manager and MeshCore
         self.connection_manager = ConnectionManager(connection)
+        
+        # Enable debug logging only if log level is DEBUG
+        debug_logging = self.config.log_level == "DEBUG"
+        
         self.meshcore = MeshCore(
             self.connection_manager,
-            debug=True,  # Enable debug logging
+            debug=debug_logging,  # Enable debug logging based on config
             auto_reconnect=True,  # Enable auto-reconnect
             default_timeout=self.config.meshcore.timeout,
         )
+        
+        # Ensure MeshCore logger respects our configured log level
+        meshcore_logger = logging.getLogger("meshcore")
+        meshcore_logger.setLevel(getattr(logging, self.config.log_level))
 
-        # Set up MeshCore event handlers
+        # Set up MeshCore event handlers based on configuration
         self.logger.info("Setting up MeshCore event subscriptions")
-        self.meshcore.subscribe(EventType.CONTACT_MSG_RECV, self._on_meshcore_message)
-        self.meshcore.subscribe(EventType.CHANNEL_MSG_RECV, self._on_meshcore_message)
-        self.meshcore.subscribe(EventType.CONNECTED, self._on_meshcore_connected)
-        self.meshcore.subscribe(EventType.DISCONNECTED, self._on_meshcore_disconnected)
+        configured_events = set(self.config.meshcore.events)
 
-        # Subscribe to additional events for debugging and monitoring
-        self.meshcore.subscribe(
-            EventType.LOGIN_SUCCESS, self._on_meshcore_login_success
-        )
-        self.meshcore.subscribe(EventType.LOGIN_FAILED, self._on_meshcore_login_failed)
-        self.meshcore.subscribe(
-            EventType.MESSAGES_WAITING, self._on_meshcore_messages_waiting
-        )
-        self.meshcore.subscribe(EventType.DEVICE_INFO, self._on_meshcore_device_info)
-        self.meshcore.subscribe(EventType.BATTERY, self._on_meshcore_battery)
-        self.meshcore.subscribe(EventType.NEW_CONTACT, self._on_meshcore_new_contact)
+        # Map event type strings to handlers
+        event_handlers = {
+            "CONTACT_MSG_RECV": self._on_meshcore_message,
+            "CHANNEL_MSG_RECV": self._on_meshcore_message,
+            "CONNECTED": self._on_meshcore_connected,
+            "DISCONNECTED": self._on_meshcore_disconnected,
+            "LOGIN_SUCCESS": self._on_meshcore_login_success,
+            "LOGIN_FAILED": self._on_meshcore_login_failed,
+            "MESSAGES_WAITING": self._on_meshcore_messages_waiting,
+            "DEVICE_INFO": self._on_meshcore_device_info,
+            "BATTERY": self._on_meshcore_battery,
+            "NEW_CONTACT": self._on_meshcore_new_contact,
+        }
 
-        # Subscribe to all other events for debugging
-        for event_type in EventType:
-            if event_type not in [
-                EventType.CONTACT_MSG_RECV,
-                EventType.CHANNEL_MSG_RECV,
-                EventType.CONNECTED,
-                EventType.DISCONNECTED,
-                EventType.LOGIN_SUCCESS,
-                EventType.LOGIN_FAILED,
-                EventType.MESSAGES_WAITING,
-                EventType.DEVICE_INFO,
-                EventType.BATTERY,
-                EventType.NEW_CONTACT,
-            ]:
-                self.meshcore.subscribe(event_type, self._on_meshcore_debug_event)
+        # Subscribe to configured events with specific handlers
+        subscribed_events = set()
+        for event_name in configured_events:
+            try:
+                event_type = getattr(EventType, event_name)
+                handler = event_handlers.get(event_name, self._on_meshcore_debug_event)
+                self.meshcore.subscribe(event_type, handler)
+                subscribed_events.add(event_name)
+                self.logger.info(f"Subscribed to event: {event_name}")
+            except AttributeError:
+                self.logger.warning(f"Unknown event type: {event_name}")
 
         # Connect to MeshCore device
         try:

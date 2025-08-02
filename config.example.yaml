@@ -13,5 +13,16 @@ meshcore:
   port: 12345
   baudrate: 115200
   timeout: 5
+  events:
+    - CONTACT_MSG_RECV
+    - CHANNEL_MSG_RECV
+    - CONNECTED
+    - DISCONNECTED
+    - LOGIN_SUCCESS
+    - LOGIN_FAILED
+    - MESSAGES_WAITING
+    - DEVICE_INFO
+    - BATTERY
+    - NEW_CONTACT
 
 log_level: INFO

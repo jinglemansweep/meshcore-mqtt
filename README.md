@@ -55,6 +55,7 @@ The bridge supports multiple configuration methods with the following precedence
 - `meshcore_port`: Device port for TCP connections (default: 12345)
 - `meshcore_baudrate`: Baudrate for serial connections (default: 115200)
 - `meshcore_timeout`: Operation timeout in seconds (default: 5)
+- `meshcore_events`: List of MeshCore event types to subscribe to (see [Event Types](#event-types))
 
 #### General Settings
 - `log_level`: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -78,7 +79,15 @@ The bridge supports multiple configuration methods with the following precedence
     "address": "192.168.1.100",
     "port": 12345,
     "baudrate": 115200,
-    "timeout": 10
+    "timeout": 10,
+    "events": [
+      "CONTACT_MSG_RECV",
+      "CHANNEL_MSG_RECV",
+      "CONNECTED",
+      "DISCONNECTED",
+      "BATTERY",
+      "DEVICE_INFO"
+    ]
   },
   "log_level": "INFO"
 }
@@ -101,6 +110,13 @@ meshcore:
   port: 12345
   baudrate: 115200
   timeout: 10
+  events:
+    - CONTACT_MSG_RECV
+    - CHANNEL_MSG_RECV
+    - CONNECTED
+    - DISCONNECTED
+    - BATTERY
+    - DEVICE_INFO
 
 log_level: INFO
 ```
@@ -115,6 +131,7 @@ export MESHCORE_CONNECTION=tcp
 export MESHCORE_ADDRESS=192.168.1.100
 export MESHCORE_PORT=12345
 export MESHCORE_BAUDRATE=115200
+export MESHCORE_EVENTS="CONNECTED,DISCONNECTED,BATTERY,DEVICE_INFO"
 export LOG_LEVEL=INFO
 ```
 
@@ -135,7 +152,8 @@ python -m meshcore_mqtt.main \
   --mqtt-password mypass \
   --meshcore-connection tcp \
   --meshcore-address 192.168.1.100 \
-  --meshcore-port 12345
+  --meshcore-port 12345 \
+  --meshcore-events "CONNECTED,DISCONNECTED,BATTERY"
 ```
 
 #### Using Environment Variables
@@ -171,18 +189,96 @@ python -m meshcore_mqtt.main \
   --meshcore-address AA:BB:CC:DD:EE:FF
 ```
 
+## Event Types
+
+The bridge can subscribe to various MeshCore event types. You can configure which events to monitor using the `events` configuration option.
+
+### Default Events
+If no events are specified, the bridge subscribes to these default events:
+- `CONTACT_MSG_RECV` - Contact messages received
+- `CHANNEL_MSG_RECV` - Channel messages received  
+- `CONNECTED` - Device connection events
+- `DISCONNECTED` - Device disconnection events
+- `LOGIN_SUCCESS` - Successful authentication
+- `LOGIN_FAILED` - Failed authentication
+- `MESSAGES_WAITING` - Pending messages notification
+- `DEVICE_INFO` - Device information updates
+- `BATTERY` - Battery status updates
+- `NEW_CONTACT` - New contact discovered
+
+### Additional Supported Events
+You can also subscribe to these additional event types:
+- `TELEMETRY` - Telemetry data
+- `POSITION` - Position/GPS updates
+- `USER` - User-related events
+- `ROUTING` - Mesh routing events
+- `ADMIN` - Administrative messages
+- `TEXT_MESSAGE_RX` - Text messages received
+- `TEXT_MESSAGE_TX` - Text messages transmitted
+- `WAYPOINT` - Waypoint data
+- `NEIGHBOR_INFO` - Neighbor node information
+- `TRACEROUTE` - Network trace information
+- `NODE_LIST_CHANGED` - Node list updates
+- `CONFIG_CHANGED` - Configuration changes
+
+### Configuration Examples
+
+#### Minimal Events (Performance Optimized)
+```yaml
+meshcore:
+  events:
+    - CONNECTED
+    - DISCONNECTED
+    - BATTERY
+```
+
+#### Message-Focused Events
+```yaml
+meshcore:
+  events:
+    - CONTACT_MSG_RECV
+    - CHANNEL_MSG_RECV
+    - TEXT_MESSAGE_RX
+```
+
+#### Full Monitoring
+```yaml
+meshcore:
+  events:
+    - CONTACT_MSG_RECV
+    - CHANNEL_MSG_RECV
+    - CONNECTED
+    - DISCONNECTED
+    - TELEMETRY
+    - POSITION
+    - BATTERY
+    - DEVICE_INFO
+```
+
+**Note**: Event names are case-insensitive. You can use `connected`, `CONNECTED`, or `Connected` - they will all be normalized to uppercase.
+
 ## MQTT Topics
 
-The bridge uses the configured topic prefix (default: "meshcore") with the following structure:
+The bridge publishes to different MQTT topics based on the configured event types. Using the configured topic prefix (default: "meshcore"):
 
-- `{prefix}/message` - Messages from MeshCore device
-- `{prefix}/status` - Connection status (connected/disconnected)
-- `{prefix}/command/{type}` - Commands to MeshCore device
+### Core Topics
+- `{prefix}/message` - Messages from CONTACT_MSG_RECV and CHANNEL_MSG_RECV events
+- `{prefix}/status` - Connection status from CONNECTED/DISCONNECTED events  
+- `{prefix}/command/{type}` - Commands to MeshCore device (subscribed)
+
+### Event-Specific Topics
+- `{prefix}/login` - Authentication status from LOGIN_SUCCESS/LOGIN_FAILED events
+- `{prefix}/device_info` - Device information from DEVICE_INFO events
+- `{prefix}/battery` - Battery status from BATTERY events
+- `{prefix}/new_contact` - Contact discovery from NEW_CONTACT events
+- `{prefix}/debug_event` - Other events not specifically handled
 
 ### Examples
-- `meshcore/message` - Incoming messages from MeshCore
-- `meshcore/status` - Device connection status
-- `meshcore/command/send` - Send command to MeshCore
+- `meshcore/message` - Incoming contact/channel messages
+- `meshcore/status` - Device connection status ("connected"/"disconnected")
+- `meshcore/battery` - Battery level updates
+- `meshcore/device_info` - Device specifications and capabilities
+- `meshcore/command/send` - Send command to MeshCore (subscribed topic)
 
 ## Development
 
