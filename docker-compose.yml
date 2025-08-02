@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   meshcore-mqtt:
-    build: .
+    image: ghcr.io/jinglemansweep/meshcore-mqtt:latest
+    # Alternative: build locally
+    # build: .
     container_name: meshcore-mqtt-bridge
     restart: unless-stopped
     

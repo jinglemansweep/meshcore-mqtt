@@ -308,12 +308,41 @@ The MeshCore MQTT Bridge provides multi-stage Docker support with Alpine Linux f
 
 ### Quick Start with Docker
 
-#### Option 1: Using Environment Variables
+#### Using Pre-built Images from GHCR
+
+Pre-built Docker images are available from GitHub Container Registry:
+
+**Available Tags:**
+- `latest` - Latest stable release from main branch
+- `develop` - Latest development build
+- `v1.0.0` - Specific version tags
+- `v1.0` - Major.minor version tags
+- `v1` - Major version tags
+
 ```bash
-# Build the image
-docker build -t meshcore-mqtt:latest .
+# Pull the latest image
+docker pull ghcr.io/jinglemansweep/meshcore-mqtt:latest
 
 # Run with serial connection (default for MeshCore devices)
+docker run -d \
+  --name meshcore-mqtt-bridge \
+  --restart unless-stopped \
+  --device=/dev/ttyUSB0:/dev/ttyUSB0 \
+  -e MQTT_BROKER=192.168.1.100 \
+  -e MQTT_USERNAME=meshcore \
+  -e MQTT_PASSWORD=meshcore123 \
+  -e MESHCORE_CONNECTION=serial \
+  -e MESHCORE_ADDRESS=/dev/ttyUSB0 \
+  ghcr.io/jinglemansweep/meshcore-mqtt:latest
+```
+
+#### Building Locally
+
+```bash
+# Build the image locally
+docker build -t meshcore-mqtt:latest .
+
+# Run with local image
 docker run -d \
   --name meshcore-mqtt-bridge \
   --restart unless-stopped \
@@ -326,19 +355,20 @@ docker run -d \
   meshcore-mqtt:latest
 ```
 
-#### Option 2: Using Environment File
+#### Using Environment File
+
 ```bash
 # Create environment file from example
 cp .env.docker.example .env.docker
 # Edit .env.docker with your configuration
 
 # Run with environment file (includes device mount for serial)
-docker run -d \
+docker run -d \  
   --name meshcore-mqtt-bridge \
   --restart unless-stopped \
   --device=/dev/ttyUSB0:/dev/ttyUSB0 \
   --env-file .env.docker \
-  meshcore-mqtt:latest
+  ghcr.io/jinglemansweep/meshcore-mqtt:latest
 ```
 
 #### Option 3: Using Docker Compose
