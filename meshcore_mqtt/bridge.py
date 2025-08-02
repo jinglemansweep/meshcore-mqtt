@@ -287,25 +287,27 @@ class MeshCoreMQTTBridge:
             return
 
         self.logger.info("Starting MQTT client loop")
-        
+
         try:
             # Start the network loop in background thread
             self.mqtt_client.loop_start()
-            
+
             # Monitor connection health and ensure messages are processed
             while self._running:
                 if self.mqtt_client:
                     # Check connection health every 5 seconds
                     if not self.mqtt_client.is_connected():
-                        self.logger.warning("MQTT client disconnected in loop, attempting reconnection")
+                        self.logger.warning(
+                            "MQTT client disconnected in loop, attempting reconnection"
+                        )
                         if self._running:
                             asyncio.create_task(self._reconnect_mqtt())
-                    
+
                     # Give time for message processing
                     await asyncio.sleep(5.0)
                 else:
                     break
-                    
+
         except Exception as e:
             self.logger.error(f"MQTT loop error: {e}")
         finally:
@@ -506,7 +508,9 @@ class MeshCoreMQTTBridge:
                 )
                 # Trigger reconnection if bridge is still running
                 if self._running:
-                    self.logger.debug("Triggering MQTT reconnection from publish method")
+                    self.logger.debug(
+                        "Triggering MQTT reconnection from publish method"
+                    )
                     asyncio.create_task(self._reconnect_mqtt())
                 return False
 
@@ -670,11 +674,14 @@ class MeshCoreMQTTBridge:
 
     async def _on_meshcore_no_more_msgs(self, event_data: Any) -> None:
         """Handle NO_MORE_MSGS events and restart auto-fetching."""
-        self.logger.info(f"Received NO_MORE_MSGS event: {event_data}, restarting auto-fetch in 5 seconds")
-        
+        self.logger.info(
+            f"Received NO_MORE_MSGS event: {event_data}, "
+            f"restarting auto-fetch in 5 seconds"
+        )
+
         # Wait a bit before restarting to avoid tight loops
         await asyncio.sleep(5)
-        
+
         if self.meshcore and self._running:
             try:
                 # Restart auto message fetching
