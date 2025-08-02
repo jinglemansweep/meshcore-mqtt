@@ -220,6 +220,7 @@ You can also subscribe to these additional event types:
 - `TRACEROUTE` - Network trace information
 - `NODE_LIST_CHANGED` - Node list updates
 - `CONFIG_CHANGED` - Configuration changes
+- `ADVERTISEMENT` - Device advertisement broadcasts
 
 ### Configuration Examples
 
@@ -253,6 +254,7 @@ meshcore:
     - POSITION
     - BATTERY
     - DEVICE_INFO
+    - ADVERTISEMENT
 ```
 
 **Note**: Event names are case-insensitive. You can use `connected`, `CONNECTED`, or `Connected` - they will all be normalized to uppercase.
@@ -271,6 +273,7 @@ The bridge publishes to different MQTT topics based on the configured event type
 - `{prefix}/device_info` - Device information from DEVICE_INFO events
 - `{prefix}/battery` - Battery status from BATTERY events
 - `{prefix}/new_contact` - Contact discovery from NEW_CONTACT events
+- `{prefix}/advertisement` - Device advertisements from ADVERTISEMENT events
 - `{prefix}/debug_event` - Other events not specifically handled
 
 ### Examples
@@ -278,6 +281,7 @@ The bridge publishes to different MQTT topics based on the configured event type
 - `meshcore/status` - Device connection status ("connected"/"disconnected")
 - `meshcore/battery` - Battery level updates
 - `meshcore/device_info` - Device specifications and capabilities
+- `meshcore/advertisement` - Device advertisement broadcasts
 - `meshcore/command/send` - Send command to MeshCore (subscribed topic)
 
 ## Development

@@ -143,3 +143,40 @@ class TestMeshCoreMQTTBridge:
         # Test command topic pattern
         expected_command_topic = f"{bridge.config.mqtt.topic_prefix}/command/+"
         assert expected_command_topic == "test/command/+"
+
+    def test_advertisement_event_handler_mapping(self) -> None:
+        """Test that ADVERTISEMENT events are mapped to the correct handler."""
+        config = Config(
+            mqtt=MQTTConfig(broker="localhost"),
+            meshcore=MeshCoreConfig(
+                connection_type=ConnectionType.TCP,
+                address="127.0.0.1",
+                port=12345,
+                events=["ADVERTISEMENT"]
+            ),
+        )
+
+        bridge = MeshCoreMQTTBridge(config)
+        
+        # Verify that ADVERTISEMENT is configured in events
+        assert "ADVERTISEMENT" in bridge.config.meshcore.events
+        
+        # Verify the handler method exists
+        assert hasattr(bridge, '_on_meshcore_advertisement')
+
+    def test_advertisement_mqtt_topic(self) -> None:
+        """Test that ADVERTISEMENT events generate the correct MQTT topic."""
+        config = Config(
+            mqtt=MQTTConfig(broker="localhost", topic_prefix="meshtest"),
+            meshcore=MeshCoreConfig(
+                connection_type=ConnectionType.TCP,
+                address="127.0.0.1",
+                port=12345
+            ),
+        )
+
+        bridge = MeshCoreMQTTBridge(config)
+        
+        # Test advertisement topic generation
+        expected_topic = f"{bridge.config.mqtt.topic_prefix}/advertisement"
+        assert expected_topic == "meshtest/advertisement"

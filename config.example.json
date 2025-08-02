@@ -24,7 +24,8 @@
       "MESSAGES_WAITING",
       "DEVICE_INFO",
       "BATTERY",
-      "NEW_CONTACT"
+      "NEW_CONTACT",
+      "ADVERTISEMENT"
     ]
   },
   "log_level": "INFO"

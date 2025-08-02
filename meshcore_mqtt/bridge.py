@@ -201,6 +201,7 @@ class MeshCoreMQTTBridge:
             "DEVICE_INFO": self._on_meshcore_device_info,
             "BATTERY": self._on_meshcore_battery,
             "NEW_CONTACT": self._on_meshcore_new_contact,
+            "ADVERTISEMENT": self._on_meshcore_advertisement,
         }
 
         # Subscribe to configured events with specific handlers
@@ -531,6 +532,15 @@ class MeshCoreMQTTBridge:
         print("NEW CONTACT:", event_data)
 
         topic = f"{self.config.mqtt.topic_prefix}/new_contact"
+        payload = self._serialize_to_json(event_data)
+        self._safe_mqtt_publish(topic, payload)
+
+    async def _on_meshcore_advertisement(self, event_data: Any) -> None:
+        """Handle device advertisement events."""
+        self.logger.debug("Received MeshCore device advertisement")
+        print("ADVERTISEMENT:", event_data)
+
+        topic = f"{self.config.mqtt.topic_prefix}/advertisement"
         payload = self._serialize_to_json(event_data)
         self._safe_mqtt_publish(topic, payload)
 
