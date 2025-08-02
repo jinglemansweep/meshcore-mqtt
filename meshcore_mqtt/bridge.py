@@ -46,8 +46,14 @@ class MeshCoreMQTTBridge:
         self._last_meshcore_activity: Optional[float] = None
         self._last_mqtt_activity: Optional[float] = None
         self._auto_fetch_running = False
-        self._reconnect_attempts = 0
+
+        # Separate reconnection tracking
+        self._mqtt_reconnect_attempts = 0
+        self._meshcore_reconnect_attempts = 0
         self._max_reconnect_attempts = 10
+
+        # MQTT reconnection flags
+        self._mqtt_reconnecting = False
 
     async def start(self) -> None:
         """Start the bridge service."""
@@ -160,7 +166,12 @@ class MeshCoreMQTTBridge:
         self.mqtt_client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         # Connect to MQTT broker with retry logic
-        await self._connect_mqtt_with_retry()
+        try:
+            await self._connect_mqtt_with_retry()
+        except Exception as e:
+            self.logger.error(f"Initial MQTT connection failed: {e}")
+            # Use the robust recovery system for initial connection too
+            await self._recover_mqtt_connection()
 
         # Start MQTT loop in a separate task
         mqtt_task = asyncio.create_task(self._mqtt_loop())
@@ -323,7 +334,7 @@ class MeshCoreMQTTBridge:
                             "MQTT client disconnected in loop, attempting reconnection"
                         )
                         if self._running:
-                            asyncio.create_task(self._reconnect_mqtt())
+                            asyncio.create_task(self._recover_mqtt_connection())
 
                     # Give time for message processing
                     await asyncio.sleep(5.0)
@@ -374,45 +385,14 @@ class MeshCoreMQTTBridge:
         self._mqtt_connected = False
         if rc != 0:
             self.logger.warning(
-                f"Unexpected MQTT disconnection: {mqtt.error_string(rc)}"
+                f"🔴 Unexpected MQTT disconnection: {mqtt.error_string(rc)} (code: {rc})"
             )
-            # Schedule reconnection attempt if bridge is still running
-            if self._running:
-                self.logger.info("Scheduling MQTT reconnection...")
-                asyncio.create_task(self._reconnect_mqtt())
+            # Only trigger recovery if we're not already reconnecting
+            if self._running and not self._mqtt_reconnecting:
+                self.logger.info("Triggering MQTT recovery from disconnect callback")
+                asyncio.create_task(self._recover_mqtt_connection())
         else:
             self.logger.info("MQTT client disconnected cleanly")
-
-    async def _reconnect_mqtt(self) -> None:
-        """Attempt to reconnect to MQTT broker."""
-        max_retries = 10
-        for attempt in range(max_retries):
-            if not self._running:
-                return
-
-            try:
-                await asyncio.sleep(min(2**attempt, 30))  # Exponential backoff
-
-                if self.mqtt_client and not self.mqtt_client.is_connected():
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, self.mqtt_client.reconnect
-                    )
-                    self.logger.info(
-                        f"MQTT reconnection successful on attempt {attempt + 1}"
-                    )
-                    # Give connection time to stabilize
-                    await asyncio.sleep(2.0)
-                    return
-                elif self.mqtt_client and self.mqtt_client.is_connected():
-                    self.logger.info("MQTT already reconnected")
-                    return
-
-            except Exception as e:
-                self.logger.warning(
-                    f"MQTT reconnection attempt {attempt + 1} failed: {e}"
-                )
-
-        self.logger.error(f"Failed to reconnect to MQTT after {max_retries} attempts")
 
     async def _monitor_connections(self) -> None:
         """Monitor both MeshCore and MQTT connections and attempt recovery."""
@@ -424,14 +404,19 @@ class MeshCoreMQTTBridge:
 
                 # Check MQTT connection
                 if self.mqtt_client and not self.mqtt_client.is_connected():
-                    if self._mqtt_connected:
-                        self.logger.warning("MQTT connection lost, attempting recovery")
+                    if self._mqtt_connected and not self._mqtt_reconnecting:
+                        self.logger.warning(
+                            "🔴 MQTT connection lost, starting recovery"
+                        )
                         self._mqtt_connected = False
                         asyncio.create_task(self._recover_mqtt_connection())
                 elif self.mqtt_client and self.mqtt_client.is_connected():
-                    if not self._mqtt_connected:
-                        self.logger.info("MQTT connection restored")
+                    if not self._mqtt_connected and not self._mqtt_reconnecting:
+                        self.logger.info("🟢 MQTT connection restored")
                         self._mqtt_connected = True
+                        self._mqtt_reconnect_attempts = (
+                            0  # Reset counter on natural restore
+                        )
                         self._last_mqtt_activity = current_time
 
                 # Check MeshCore connection
@@ -488,51 +473,164 @@ class MeshCoreMQTTBridge:
             return False
 
     async def _recover_mqtt_connection(self) -> None:
-        """Attempt to recover MQTT connection."""
-        if self._reconnect_attempts >= self._max_reconnect_attempts:
+        """Attempt to recover MQTT connection with complete client recreation."""
+        # Prevent multiple concurrent recovery attempts
+        if self._mqtt_reconnecting:
+            self.logger.debug("MQTT recovery already in progress, skipping")
+            return
+
+        if self._mqtt_reconnect_attempts >= self._max_reconnect_attempts:
             self.logger.error("Max MQTT reconnection attempts reached")
             return
 
-        self._reconnect_attempts += 1
-        self.logger.info(
-            f"Attempting MQTT recovery (attempt {self._reconnect_attempts})"
+        self._mqtt_reconnecting = True
+        self._mqtt_reconnect_attempts += 1
+
+        self.logger.warning(
+            f"Starting MQTT recovery (attempt "
+            f"{self._mqtt_reconnect_attempts}/{self._max_reconnect_attempts})"
         )
 
         try:
-            # Stop existing connection
-            if self.mqtt_client:
-                try:
-                    if hasattr(self.mqtt_client, "_loop_started"):
-                        self.mqtt_client.loop_stop()
-                        delattr(self.mqtt_client, "_loop_started")
-                    if self.mqtt_client.is_connected():
-                        self.mqtt_client.disconnect()
-                except Exception as e:
-                    self.logger.debug(f"Error stopping old MQTT client: {e}")
+            # 1. Completely destroy the old client
+            await self._destroy_mqtt_client()
 
-            # Wait before attempting reconnection
-            await asyncio.sleep(min(self._reconnect_attempts * 2, 30))
+            # 2. Wait with exponential backoff
+            delay = min(2**self._mqtt_reconnect_attempts, 30)
+            self.logger.info(f"Waiting {delay}s before MQTT reconnection")
+            await asyncio.sleep(delay)
 
-            # Re-setup MQTT connection
-            await self._setup_mqtt()
-            self._reconnect_attempts = 0  # Reset on success
-            self.logger.info("MQTT connection recovery successful")
+            # 3. Create completely new MQTT client and connection
+            await self._create_fresh_mqtt_client()
+
+            # 4. Success - reset counters and flags
+            self._mqtt_reconnect_attempts = 0
+            self._mqtt_reconnecting = False
+            self._mqtt_connected = True
+            self._last_mqtt_activity = time.time()
+
+            self.logger.info("✅ MQTT connection recovery successful")
 
         except Exception as e:
-            self.logger.error(f"MQTT recovery attempt failed: {e}")
-            if self._reconnect_attempts < self._max_reconnect_attempts:
-                await asyncio.sleep(30)
-                asyncio.create_task(self._recover_mqtt_connection())
+            self.logger.error(
+                f"❌ MQTT recovery attempt {self._mqtt_reconnect_attempts} failed: {e}"
+            )
+            self._mqtt_reconnecting = False
+
+            # Schedule retry if we haven't hit max attempts
+            if self._mqtt_reconnect_attempts < self._max_reconnect_attempts:
+                retry_delay = min(5 * self._mqtt_reconnect_attempts, 60)
+                self.logger.info(f"Scheduling MQTT retry in {retry_delay}s")
+                await asyncio.sleep(retry_delay)
+                if self._running:  # Only retry if bridge is still running
+                    asyncio.create_task(self._recover_mqtt_connection())
+            else:
+                self.logger.error(
+                    "🚨 MQTT recovery failed permanently - max attempts reached"
+                )
+
+    async def _destroy_mqtt_client(self) -> None:
+        """Completely destroy the existing MQTT client."""
+        if not self.mqtt_client:
+            return
+
+        self.logger.debug("Destroying old MQTT client")
+
+        try:
+            # Stop the loop if it's running
+            if hasattr(self.mqtt_client, "_loop_started"):
+                self.mqtt_client.loop_stop()
+                delattr(self.mqtt_client, "_loop_started")
+
+            # Force disconnect
+            if self.mqtt_client.is_connected():
+                self.mqtt_client.disconnect()
+
+            # Remove callbacks to prevent issues
+            self.mqtt_client.on_connect = None
+            self.mqtt_client.on_disconnect = None
+            self.mqtt_client.on_message = None
+            self.mqtt_client.on_publish = None
+            self.mqtt_client.on_log = None
+
+        except Exception as e:
+            self.logger.debug(f"Error during MQTT client destruction: {e}")
+        finally:
+            # Always clear the reference
+            self.mqtt_client = None
+            self._mqtt_connected = False
+
+    async def _create_fresh_mqtt_client(self) -> None:
+        """Create a completely fresh MQTT client and establish connection."""
+        self.logger.info("Creating fresh MQTT client")
+
+        # Generate a new unique client ID
+        client_id = f"meshcore-mqtt-{uuid.uuid4().hex[:8]}"
+        self.logger.debug(f"Using new MQTT client ID: {client_id}")
+
+        # Create brand new client
+        self.mqtt_client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=client_id,
+            clean_session=True,  # Always use clean session for reconnections
+            reconnect_on_failure=False,  # We handle reconnection ourselves
+        )
+
+        # Set up callbacks
+        self.mqtt_client.on_connect = self._on_mqtt_connect
+        self.mqtt_client.on_disconnect = self._on_mqtt_disconnect  # type: ignore
+        self.mqtt_client.on_message = self._on_mqtt_message
+        self.mqtt_client.on_publish = self._on_mqtt_publish
+        self.mqtt_client.on_log = self._on_mqtt_log
+
+        # Set authentication if provided
+        if self.config.mqtt.username and self.config.mqtt.password:
+            self.mqtt_client.username_pw_set(
+                self.config.mqtt.username, self.config.mqtt.password
+            )
+
+        # Set connection parameters
+        self.mqtt_client.keepalive = 60
+        self.mqtt_client.max_inflight_messages_set(1)
+        self.mqtt_client.max_queued_messages_set(100)
+
+        # Connect with timeout
+        self.logger.debug(
+            f"Connecting to MQTT broker "
+            f"{self.config.mqtt.broker}:{self.config.mqtt.port}"
+        )
+
+        # Use executor to avoid blocking the event loop
+        if self.mqtt_client:
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.mqtt_client.connect(  # type: ignore
+                    self.config.mqtt.broker, self.config.mqtt.port, 60
+                ),
+            )
+
+        # Start the client loop
+        self.mqtt_client.loop_start()
+
+        # Wait a moment for connection to establish
+        await asyncio.sleep(2)
+
+        # Verify connection was successful
+        if not self.mqtt_client.is_connected():
+            raise RuntimeError("MQTT client failed to connect")
+
+        self.logger.info("✅ Fresh MQTT client connected successfully")
 
     async def _recover_meshcore_connection(self) -> None:
         """Attempt to recover MeshCore connection."""
-        if self._reconnect_attempts >= self._max_reconnect_attempts:
+        if self._meshcore_reconnect_attempts >= self._max_reconnect_attempts:
             self.logger.error("Max MeshCore reconnection attempts reached")
             return
 
-        self._reconnect_attempts += 1
-        self.logger.info(
-            f"Attempting MeshCore recovery (attempt {self._reconnect_attempts})"
+        self._meshcore_reconnect_attempts += 1
+        self.logger.warning(
+            f"Starting MeshCore recovery (attempt "
+            f"{self._meshcore_reconnect_attempts}/{self._max_reconnect_attempts})"
         )
 
         try:
@@ -545,18 +643,30 @@ class MeshCoreMQTTBridge:
                     self.logger.debug(f"Error stopping old MeshCore connection: {e}")
 
             # Wait before attempting reconnection
-            await asyncio.sleep(min(self._reconnect_attempts * 2, 30))
+            delay = min(self._meshcore_reconnect_attempts * 2, 30)
+            self.logger.info(f"Waiting {delay}s before MeshCore reconnection")
+            await asyncio.sleep(delay)
 
             # Re-setup MeshCore connection
             await self._setup_meshcore()
-            self._reconnect_attempts = 0  # Reset on success
-            self.logger.info("MeshCore connection recovery successful")
+            self._meshcore_reconnect_attempts = 0  # Reset on success
+            self.logger.info("✅ MeshCore connection recovery successful")
 
         except Exception as e:
-            self.logger.error(f"MeshCore recovery attempt failed: {e}")
-            if self._reconnect_attempts < self._max_reconnect_attempts:
-                await asyncio.sleep(30)
-                asyncio.create_task(self._recover_meshcore_connection())
+            self.logger.error(
+                f"❌ MeshCore recovery attempt "
+                f"{self._meshcore_reconnect_attempts} failed: {e}"
+            )
+            if self._meshcore_reconnect_attempts < self._max_reconnect_attempts:
+                retry_delay = min(5 * self._meshcore_reconnect_attempts, 60)
+                self.logger.info(f"Scheduling MeshCore retry in {retry_delay}s")
+                await asyncio.sleep(retry_delay)
+                if self._running:
+                    asyncio.create_task(self._recover_meshcore_connection())
+            else:
+                self.logger.error(
+                    "🚨 MeshCore recovery failed permanently - max attempts reached"
+                )
 
     async def _maintain_auto_fetch(self) -> None:
         """Continuously maintain auto-fetch, restarting if it stops."""
@@ -708,7 +818,7 @@ class MeshCoreMQTTBridge:
                     self.logger.debug(
                         "Triggering MQTT reconnection from publish method"
                     )
-                    asyncio.create_task(self._reconnect_mqtt())
+                    asyncio.create_task(self._recover_mqtt_connection())
                 return False
 
             qos = qos if qos is not None else self.config.mqtt.qos
@@ -734,7 +844,7 @@ class MeshCoreMQTTBridge:
                 self.logger.warning(f"MQTT not connected while publishing to {topic}")
                 # Trigger reconnection if bridge is still running
                 if self._running:
-                    asyncio.create_task(self._reconnect_mqtt())
+                    asyncio.create_task(self._recover_mqtt_connection())
                 return False
             else:
                 self.logger.error(
@@ -748,7 +858,7 @@ class MeshCoreMQTTBridge:
             # Trigger reconnection for connection-related errors
             if self._running:
                 self.logger.info("Triggering MQTT reconnection due to connection error")
-                asyncio.create_task(self._reconnect_mqtt())
+                asyncio.create_task(self._recover_mqtt_connection())
             return False
         except Exception as e:
             self.logger.error(
