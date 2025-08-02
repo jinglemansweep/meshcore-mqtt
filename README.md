@@ -293,6 +293,147 @@ The bridge publishes to different MQTT topics based on the configured event type
 - `meshcore/advertisement` - Device advertisement broadcasts
 - `meshcore/command/send` - Send command to MeshCore (subscribed topic)
 
+## Docker Deployment
+
+The MeshCore MQTT Bridge provides multi-stage Docker support with Alpine Linux for minimal image size and enhanced security. Following 12-factor app principles, the Docker container is configured entirely through environment variables.
+
+### Docker Features
+
+- **Multi-stage build**: Optimized Alpine-based images with minimal attack surface
+- **Non-root user**: Runs as dedicated `meshcore` user for security
+- **Environment variables**: Full configuration via environment variables (12-factor app)
+- **Health checks**: Built-in container health monitoring
+- **Signal handling**: Proper init system with tini for clean shutdowns
+- **Container logging**: Logs output to stdout/stderr for Docker log drivers
+
+### Quick Start with Docker
+
+#### Option 1: Using Environment Variables
+```bash
+# Build the image
+docker build -t meshcore-mqtt:latest .
+
+# Run with serial connection (default for MeshCore devices)
+docker run -d \
+  --name meshcore-mqtt-bridge \
+  --restart unless-stopped \
+  --device=/dev/ttyUSB0:/dev/ttyUSB0 \
+  -e MQTT_BROKER=192.168.1.100 \
+  -e MQTT_USERNAME=meshcore \
+  -e MQTT_PASSWORD=meshcore123 \
+  -e MESHCORE_CONNECTION=serial \
+  -e MESHCORE_ADDRESS=/dev/ttyUSB0 \
+  meshcore-mqtt:latest
+```
+
+#### Option 2: Using Environment File
+```bash
+# Create environment file from example
+cp .env.docker.example .env.docker
+# Edit .env.docker with your configuration
+
+# Run with environment file (includes device mount for serial)
+docker run -d \
+  --name meshcore-mqtt-bridge \
+  --restart unless-stopped \
+  --device=/dev/ttyUSB0:/dev/ttyUSB0 \
+  --env-file .env.docker \
+  meshcore-mqtt:latest
+```
+
+#### Option 3: Using Docker Compose
+```bash
+# Start the entire stack with MQTT broker
+docker-compose up -d
+
+# View logs
+docker-compose logs -f meshcore-mqtt
+
+# Stop the stack
+docker-compose down
+```
+
+
+### Docker Environment Variables
+
+All configuration options can be set via environment variables:
+
+```bash
+# Logging Configuration
+LOG_LEVEL=INFO
+
+# MQTT Broker Configuration
+MQTT_BROKER=localhost
+MQTT_PORT=1883
+MQTT_USERNAME=user
+MQTT_PASSWORD=pass
+MQTT_TOPIC_PREFIX=meshcore
+MQTT_QOS=1
+MQTT_RETAIN=true
+
+# MeshCore Device Configuration (serial default)
+MESHCORE_CONNECTION=serial
+MESHCORE_ADDRESS=/dev/ttyUSB0    # Serial port, IP address, or BLE MAC address
+MESHCORE_BAUDRATE=115200         # For serial connections
+MESHCORE_PORT=4403              # Only for TCP connections
+MESHCORE_TIMEOUT=30
+
+# Event Configuration (comma-separated)
+MESHCORE_EVENTS=CONNECTED,DISCONNECTED,BATTERY,DEVICE_INFO
+```
+
+#### Connection Type Examples
+
+**Serial Connection (Default):**
+```bash
+MESHCORE_CONNECTION=serial
+MESHCORE_ADDRESS=/dev/ttyUSB0
+MESHCORE_BAUDRATE=115200
+# Note: Use --device=/dev/ttyUSB0 in docker run for device access
+```
+
+**TCP Connection:**
+```bash
+MESHCORE_CONNECTION=tcp
+MESHCORE_ADDRESS=192.168.1.100
+MESHCORE_PORT=4403
+```
+
+**BLE Connection:**
+```bash
+MESHCORE_CONNECTION=ble
+MESHCORE_ADDRESS=AA:BB:CC:DD:EE:FF
+```
+
+
+### Health Monitoring
+
+The container includes health checks:
+
+```bash
+# Check container health
+docker inspect --format='{{.State.Health.Status}}' meshcore-mqtt-bridge
+
+# View health check logs
+docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' meshcore-mqtt-bridge
+```
+
+### Container Management
+
+```bash
+# View container logs
+docker logs -f meshcore-mqtt-bridge
+
+# Execute commands in container
+docker exec -it meshcore-mqtt-bridge sh
+
+# Stop container
+docker stop meshcore-mqtt-bridge
+
+# Remove container
+docker rm meshcore-mqtt-bridge
+```
+
 ## Development
 
 ### Running Tests
