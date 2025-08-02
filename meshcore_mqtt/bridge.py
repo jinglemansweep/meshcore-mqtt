@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -107,8 +108,13 @@ class MeshCoreMQTTBridge:
         """Set up MQTT client connection."""
         self.logger.info("Setting up MQTT connection")
 
+        # Generate a unique client ID for persistent sessions
+        client_id = f"meshcore-mqtt-{uuid.uuid4().hex[:8]}"
+        self.logger.debug(f"Using MQTT client ID: {client_id}")
+
         self.mqtt_client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=client_id,
             clean_session=False,  # Use persistent session for better reliability
             reconnect_on_failure=True,
         )
