@@ -5,6 +5,7 @@
 [![CI](https://github.com/jinglemansweep/meshcore-mqtt/actions/workflows/ci.yml/badge.svg)](https://github.com/jinglemansweep/meshcore-mqtt/actions/workflows/ci.yml)
 [![Code Quality](https://github.com/jinglemansweep/meshcore-mqtt/actions/workflows/code-quality.yml/badge.svg)](https://github.com/jinglemansweep/meshcore-mqtt/actions/workflows/code-quality.yml)
 [![Tests](https://github.com/jinglemansweep/meshcore-mqtt/actions/workflows/test.yml/badge.svg)](https://github.com/jinglemansweep/meshcore-mqtt/actions/workflows/test.yml)
+[![Docker Build and Push](https://github.com/jinglemansweep/meshcore-mqtt/actions/workflows/docker-build.yml/badge.svg)](https://github.com/jinglemansweep/meshcore-mqtt/actions/workflows/docker-build.yml)
 [![Code style: black](https://img.shields.io/badge/Code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Typing: mypy](https://img.shields.io/badge/Typing-mypy-blue.svg)](https://mypy.readthedocs.io/)
 [![Security: bandit](https://img.shields.io/badge/Security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
