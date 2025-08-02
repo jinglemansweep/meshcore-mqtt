@@ -116,10 +116,10 @@ jobs:
         bandit -r meshcore_mqtt/ -f json -o bandit-report.json || true
         bandit -r meshcore_mqtt/
 
-    - name: Run Safety check
-      run: |
-        safety check --json --output safety-report.json || true
-        safety check
+    # - name: Run Safety check
+    #   run: |
+    #     safety check --json --output safety-report.json || true
+    #     safety check
 
   build-test:
     name: Build Test

@@ -2,8 +2,6 @@
 
 import logging
 
-import pytest
-
 from meshcore_mqtt.config import Config, ConnectionType, MeshCoreConfig, MQTTConfig
 from meshcore_mqtt.main import setup_logging
 
