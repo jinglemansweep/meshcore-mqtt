@@ -69,6 +69,9 @@ RUN mkdir -p /app/logs && \
 # Set working directory
 WORKDIR /app
 
+# Add user to dialout group for serial port access
+RUN adduser meshcore dialout
+
 # Switch to non-root user
 USER meshcore
 
