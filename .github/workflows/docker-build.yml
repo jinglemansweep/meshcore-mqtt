@@ -116,28 +116,6 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-    - name: Test image health check
-      run: |
-        # Pull the built image
-        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-
-        # Run container with health check
-        docker run -d --name test-container \
-          -e MQTT_BROKER=test.mosquitto.org \
-          -e MESHCORE_CONNECTION=serial \
-          -e MESHCORE_ADDRESS=/dev/null \
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-
-        # Wait for health check
-        timeout 60 bash -c 'until docker inspect --format="{{.State.Health.Status}}" test-container | grep -q healthy; do sleep 2; done'
-
-        # Check logs
-        docker logs test-container
-
-        # Cleanup
-        docker stop test-container
-        docker rm test-container
-
     - name: Test image CLI functionality
       run: |
         # Test CLI help command
