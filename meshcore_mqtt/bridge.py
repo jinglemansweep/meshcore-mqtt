@@ -232,6 +232,14 @@ class MeshCoreMQTTBridge:
             "ADVERTISEMENT": self._on_meshcore_advertisement,
         }
 
+        # Always subscribe to NO_MORE_MSGS to restart auto-fetching
+        try:
+            no_more_msgs_event = getattr(EventType, "NO_MORE_MSGS")
+            self.meshcore.subscribe(no_more_msgs_event, self._on_meshcore_no_more_msgs)
+            self.logger.info("Subscribed to NO_MORE_MSGS event for auto-fetch restart")
+        except AttributeError:
+            self.logger.warning("NO_MORE_MSGS event type not available")
+
         # Subscribe to configured events with specific handlers
         subscribed_events = set()
         for event_name in configured_events:
@@ -659,6 +667,21 @@ class MeshCoreMQTTBridge:
         topic = f"{self.config.mqtt.topic_prefix}/advertisement"
         payload = self._serialize_to_json(event_data)
         self._safe_mqtt_publish(topic, payload)
+
+    async def _on_meshcore_no_more_msgs(self, event_data: Any) -> None:
+        """Handle NO_MORE_MSGS events and restart auto-fetching."""
+        self.logger.info(f"Received NO_MORE_MSGS event: {event_data}, restarting auto-fetch in 5 seconds")
+        
+        # Wait a bit before restarting to avoid tight loops
+        await asyncio.sleep(5)
+        
+        if self.meshcore and self._running:
+            try:
+                # Restart auto message fetching
+                await self.meshcore.start_auto_message_fetching()
+                self.logger.info("Restarted auto message fetching")
+            except Exception as e:
+                self.logger.error(f"Failed to restart auto message fetching: {e}")
 
     async def _on_meshcore_debug_event(self, event_data: Any) -> None:
         """Handle any other MeshCore events for debugging."""
