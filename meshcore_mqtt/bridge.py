@@ -274,27 +274,40 @@ class MeshCoreMQTTBridge:
             raise
 
     async def _mqtt_loop(self) -> None:
-        """Run MQTT client loop."""
+        """Run MQTT client loop with connection monitoring."""
         if not self.mqtt_client:
             return
 
+        self.logger.info("Starting MQTT client loop")
+        
         try:
+            # Start the network loop in background thread
+            self.mqtt_client.loop_start()
+            
+            # Monitor connection health and ensure messages are processed
             while self._running:
                 if self.mqtt_client:
-                    # Use loop_start() instead of manual loop() calls
-                    if not hasattr(self.mqtt_client, "_loop_started"):
-                        self.mqtt_client.loop_start()
-                        self.mqtt_client._loop_started = True  # type: ignore
-                    await asyncio.sleep(1.0)  # Just keep the task alive
+                    # Check connection health every 5 seconds
+                    if not self.mqtt_client.is_connected():
+                        self.logger.warning("MQTT client disconnected in loop, attempting reconnection")
+                        if self._running:
+                            asyncio.create_task(self._reconnect_mqtt())
+                    
+                    # Give time for message processing
+                    await asyncio.sleep(5.0)
                 else:
                     break
+                    
         except Exception as e:
             self.logger.error(f"MQTT loop error: {e}")
         finally:
             # Stop the loop when exiting
-            if self.mqtt_client and hasattr(self.mqtt_client, "_loop_started"):
-                self.mqtt_client.loop_stop()
-                delattr(self.mqtt_client, "_loop_started")
+            if self.mqtt_client:
+                try:
+                    self.mqtt_client.loop_stop()
+                    self.logger.info("MQTT client loop stopped")
+                except Exception as e:
+                    self.logger.error(f"Error stopping MQTT loop: {e}")
 
     def _on_mqtt_connect(
         self,
@@ -351,6 +364,8 @@ class MeshCoreMQTTBridge:
                     self.logger.info(
                         f"MQTT reconnection successful on attempt {attempt + 1}"
                     )
+                    # Give connection time to stabilize
+                    await asyncio.sleep(2.0)
                     return
                 elif self.mqtt_client and self.mqtt_client.is_connected():
                     self.logger.info("MQTT already reconnected")
@@ -483,16 +498,26 @@ class MeshCoreMQTTBridge:
                 )
                 # Trigger reconnection if bridge is still running
                 if self._running:
+                    self.logger.debug("Triggering MQTT reconnection from publish method")
                     asyncio.create_task(self._reconnect_mqtt())
                 return False
 
             qos = qos if qos is not None else self.config.mqtt.qos
             retain = retain if retain is not None else self.config.mqtt.retain
 
+            # Add debug logging for message details
+            self.logger.debug(
+                f"Publishing to MQTT: topic={topic}, qos={qos}, retain={retain}, "
+                f"payload_length={len(payload)}"
+            )
+
             result = self.mqtt_client.publish(topic, payload, qos=qos, retain=retain)
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                self.logger.debug(f"Published to MQTT topic {topic}")
+                self.logger.info(f"Successfully published to MQTT topic: {topic}")
+                # Wait for message to be sent if QoS > 0
+                if qos > 0:
+                    result.wait_for_publish(timeout=5.0)
                 return True
             elif result.rc == mqtt.MQTT_ERR_NO_CONN:
                 self.logger.warning(f"MQTT not connected while publishing to {topic}")
@@ -553,11 +578,12 @@ class MeshCoreMQTTBridge:
             payload = self._serialize_to_json(event_data)
 
             # Publish to MQTT using safe method
+            self.logger.info(f"Processing MeshCore message for MQTT topic: {topic}")
             if self._safe_mqtt_publish(topic, payload):
-                self.logger.debug(f"Published MeshCore message to MQTT: {topic}")
+                self.logger.info(f"✓ Published MeshCore message to MQTT: {topic}")
             else:
-                self.logger.warning(
-                    f"Failed to publish MeshCore message to MQTT: {topic}"
+                self.logger.error(
+                    f"✗ Failed to publish MeshCore message to MQTT: {topic}"
                 )
 
         except Exception as e:
