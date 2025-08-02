@@ -13,7 +13,7 @@ isort==5.13.2
 
 # Security
 bandit==1.8.0
-safety==4.0.1
+safety==3.6.0
 
 # Development Tools
 pre-commit==4.2.0
