@@ -152,31 +152,29 @@ class TestMeshCoreMQTTBridge:
                 connection_type=ConnectionType.TCP,
                 address="127.0.0.1",
                 port=12345,
-                events=["ADVERTISEMENT"]
+                events=["ADVERTISEMENT"],
             ),
         )
 
         bridge = MeshCoreMQTTBridge(config)
-        
+
         # Verify that ADVERTISEMENT is configured in events
         assert "ADVERTISEMENT" in bridge.config.meshcore.events
-        
+
         # Verify the handler method exists
-        assert hasattr(bridge, '_on_meshcore_advertisement')
+        assert hasattr(bridge, "_on_meshcore_advertisement")
 
     def test_advertisement_mqtt_topic(self) -> None:
         """Test that ADVERTISEMENT events generate the correct MQTT topic."""
         config = Config(
             mqtt=MQTTConfig(broker="localhost", topic_prefix="meshtest"),
             meshcore=MeshCoreConfig(
-                connection_type=ConnectionType.TCP,
-                address="127.0.0.1",
-                port=12345
+                connection_type=ConnectionType.TCP, address="127.0.0.1", port=12345
             ),
         )
 
         bridge = MeshCoreMQTTBridge(config)
-        
+
         # Test advertisement topic generation
         expected_topic = f"{bridge.config.mqtt.topic_prefix}/advertisement"
         assert expected_topic == "meshtest/advertisement"

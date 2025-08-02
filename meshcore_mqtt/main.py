@@ -14,7 +14,7 @@ from .config import Config, ConnectionType
 def setup_logging(level: str) -> None:
     """Set up logging configuration."""
     log_level = getattr(logging, level)
-    
+
     # Configure root logger
     logging.basicConfig(
         level=log_level,
@@ -22,20 +22,20 @@ def setup_logging(level: str) -> None:
         handlers=[logging.StreamHandler(sys.stdout)],
         force=True,  # Override any existing configuration
     )
-    
+
     # Ensure MeshCore and other third-party libraries respect our log level
     # Set common third-party library loggers
     third_party_loggers = [
         "meshcore",
         "paho",
         "paho.mqtt",
-        "paho.mqtt.client", 
+        "paho.mqtt.client",
         "asyncio",
     ]
-    
+
     for logger_name in third_party_loggers:
         logging.getLogger(logger_name).setLevel(log_level)
-    
+
     # Set urllib3 and requests to WARNING to reduce noise unless we're in DEBUG mode
     if level != "DEBUG":
         logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -172,7 +172,7 @@ def main(
                 )
                 sys.exit(1)
 
-            from .config import MQTTConfig, MeshCoreConfig
+            from .config import MeshCoreConfig, MQTTConfig
 
             mqtt_config = MQTTConfig(
                 broker=mqtt_broker,

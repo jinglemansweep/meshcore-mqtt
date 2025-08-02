@@ -2,6 +2,9 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![CI](https://github.com/USERNAME/meshcore-mqtt/workflows/CI/badge.svg)](https://github.com/USERNAME/meshcore-mqtt/actions)
+[![Code Quality](https://github.com/USERNAME/meshcore-mqtt/workflows/Code%20Quality/badge.svg)](https://github.com/USERNAME/meshcore-mqtt/actions)
+[![Tests](https://github.com/USERNAME/meshcore-mqtt/workflows/Tests/badge.svg)](https://github.com/USERNAME/meshcore-mqtt/actions)
 [![Code style: black](https://img.shields.io/badge/Code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Typing: mypy](https://img.shields.io/badge/Typing-mypy-blue.svg)](https://mypy.readthedocs.io/)
 

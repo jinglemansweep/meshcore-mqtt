@@ -170,17 +170,17 @@ class MeshCoreMQTTBridge:
 
         # Initialize connection manager and MeshCore
         self.connection_manager = ConnectionManager(connection)
-        
+
         # Enable debug logging only if log level is DEBUG
         debug_logging = self.config.log_level == "DEBUG"
-        
+
         self.meshcore = MeshCore(
             self.connection_manager,
             debug=debug_logging,  # Enable debug logging based on config
             auto_reconnect=True,  # Enable auto-reconnect
             default_timeout=self.config.meshcore.timeout,
         )
-        
+
         # Ensure MeshCore logger respects our configured log level
         meshcore_logger = logging.getLogger("meshcore")
         meshcore_logger.setLevel(getattr(logging, self.config.log_level))

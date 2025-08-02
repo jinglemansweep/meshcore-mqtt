@@ -109,7 +109,7 @@ class MeshCoreConfig(BaseModel):
             "WAYPOINT",
             "NEIGHBOR_INFO",
             "TRACEROUTE",
-            "ADVERTISEMENT"
+            "ADVERTISEMENT",
         }
 
         invalid_events = [
