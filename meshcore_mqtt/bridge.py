@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import paho.mqtt.client as mqtt
@@ -344,6 +345,57 @@ class MeshCoreMQTTBridge:
         else:
             self.logger.debug(f"MQTT ({level}): {buf}")
 
+    def _serialize_to_json(self, data: Any) -> str:
+        """Safely serialize any data to JSON string."""
+        try:
+            # Handle common data types that should be JSON serializable
+            if isinstance(data, (dict, list, str, int, float, bool)) or data is None:
+                return json.dumps(data, ensure_ascii=False)
+
+            # Handle objects with custom serialization
+            if hasattr(data, "__dict__"):
+                # Convert object to dict, excluding private attributes
+                obj_dict = {
+                    key: value
+                    for key, value in data.__dict__.items()
+                    if not key.startswith("_")
+                }
+                # Only use this if we actually have some public attributes
+                if obj_dict:
+                    return json.dumps(obj_dict, ensure_ascii=False, default=str)
+
+            # Handle other iterable types
+            if hasattr(data, "__iter__") and not isinstance(data, (str, bytes)):
+                try:
+                    return json.dumps(list(data), ensure_ascii=False, default=str)
+                except (TypeError, ValueError):
+                    pass
+
+            # Fallback: create a structured JSON object with metadata
+            return json.dumps(
+                {
+                    "type": type(data).__name__,
+                    "value": str(data),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+                ensure_ascii=False,
+            )
+
+        except Exception as e:
+            self.logger.warning(f"Failed to serialize data to JSON: {e}")
+            # Ultimate fallback: create error JSON object
+            return json.dumps(
+                {
+                    "error": f"Serialization failed: {str(e)}",
+                    "raw_value": str(data)[
+                        :1000
+                    ],  # Limit length to prevent huge messages
+                    "type": type(data).__name__,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+                ensure_ascii=False,
+            )
+
     def _safe_mqtt_publish(
         self,
         topic: str,
@@ -404,11 +456,7 @@ class MeshCoreMQTTBridge:
         try:
             # Convert MeshCore message to MQTT topic and payload
             topic = f"{self.config.mqtt.topic_prefix}/message"
-
-            if isinstance(event_data, dict):
-                payload = json.dumps(event_data)
-            else:
-                payload = str(event_data)
+            payload = self._serialize_to_json(event_data)
 
             # Publish to MQTT using safe method
             if self._safe_mqtt_publish(topic, payload):
@@ -462,9 +510,7 @@ class MeshCoreMQTTBridge:
         print("DEVICE INFO:", event_data)
 
         topic = f"{self.config.mqtt.topic_prefix}/device_info"
-        payload = (
-            json.dumps(event_data) if isinstance(event_data, dict) else str(event_data)
-        )
+        payload = self._serialize_to_json(event_data)
         self._safe_mqtt_publish(topic, payload, retain=True)
 
     async def _on_meshcore_battery(self, event_data: Any) -> None:
@@ -473,9 +519,7 @@ class MeshCoreMQTTBridge:
         print("BATTERY INFO:", event_data)
 
         topic = f"{self.config.mqtt.topic_prefix}/battery"
-        payload = (
-            json.dumps(event_data) if isinstance(event_data, dict) else str(event_data)
-        )
+        payload = self._serialize_to_json(event_data)
         self._safe_mqtt_publish(topic, payload)
 
     async def _on_meshcore_new_contact(self, event_data: Any) -> None:
@@ -484,9 +528,7 @@ class MeshCoreMQTTBridge:
         print("NEW CONTACT:", event_data)
 
         topic = f"{self.config.mqtt.topic_prefix}/new_contact"
-        payload = (
-            json.dumps(event_data) if isinstance(event_data, dict) else str(event_data)
-        )
+        payload = self._serialize_to_json(event_data)
         self._safe_mqtt_publish(topic, payload)
 
     async def _on_meshcore_debug_event(self, event_data: Any) -> None:
@@ -497,7 +539,5 @@ class MeshCoreMQTTBridge:
         print(f"DEBUG EVENT: {event_info}")
 
         topic = f"{self.config.mqtt.topic_prefix}/debug_event"
-        payload = (
-            json.dumps(event_data) if isinstance(event_data, dict) else str(event_data)
-        )
+        payload = self._serialize_to_json(event_data)
         self._safe_mqtt_publish(topic, payload, retain=False)
