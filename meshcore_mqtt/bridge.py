@@ -87,9 +87,16 @@ class MeshCoreMQTTBridge:
                 self.logger.error(f"Error disconnecting from MeshCore: {e}")
 
         # Disconnect from MQTT
-        if self.mqtt_client and self.mqtt_client.is_connected():
+        if self.mqtt_client:
             try:
-                self.mqtt_client.disconnect()
+                # Stop the loop first
+                if hasattr(self.mqtt_client, "_loop_started"):
+                    self.mqtt_client.loop_stop()
+                    delattr(self.mqtt_client, "_loop_started")
+
+                # Then disconnect
+                if self.mqtt_client.is_connected():
+                    self.mqtt_client.disconnect()
             except Exception as e:
                 self.logger.error(f"Error disconnecting from MQTT: {e}")
 
@@ -100,7 +107,9 @@ class MeshCoreMQTTBridge:
         self.logger.info("Setting up MQTT connection")
 
         self.mqtt_client = mqtt.Client(
-            callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            clean_session=True,
+            reconnect_on_failure=True,
         )
 
         # Set up MQTT callbacks
@@ -108,12 +117,18 @@ class MeshCoreMQTTBridge:
         self.mqtt_client.on_disconnect = self._on_mqtt_disconnect  # type: ignore
         self.mqtt_client.on_message = self._on_mqtt_message
         self.mqtt_client.on_publish = self._on_mqtt_publish
+        self.mqtt_client.on_log = self._on_mqtt_log
 
         # Set authentication if provided
         if self.config.mqtt.username and self.config.mqtt.password:
             self.mqtt_client.username_pw_set(
                 self.config.mqtt.username, self.config.mqtt.password
             )
+
+        # Set keepalive and other connection parameters for stability
+        self.mqtt_client.keepalive = 60
+        self.mqtt_client.max_inflight_messages_set(20)
+        self.mqtt_client.max_queued_messages_set(0)  # Unlimited queue
 
         # Connect to MQTT broker
         try:
@@ -212,11 +227,8 @@ class MeshCoreMQTTBridge:
         self.logger.info("Bridge is now running")
 
         try:
-            # Subscribe to MQTT topics for MeshCore commands
-            command_topic = f"{self.config.mqtt.topic_prefix}/command/+"
-            if self.mqtt_client:
-                self.mqtt_client.subscribe(command_topic, self.config.mqtt.qos)
-                self.logger.info(f"Subscribed to MQTT topic: {command_topic}")
+            # MQTT subscriptions are handled in the on_connect callback
+            # to ensure they persist through reconnections
 
             # Keep running until stopped
             while self._running:
@@ -236,13 +248,20 @@ class MeshCoreMQTTBridge:
         try:
             while self._running:
                 if self.mqtt_client:
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: self.mqtt_client.loop(timeout=1.0)  # type: ignore
-                    )
+                    # Use loop_start() instead of manual loop() calls
+                    if not hasattr(self.mqtt_client, "_loop_started"):
+                        self.mqtt_client.loop_start()
+                        self.mqtt_client._loop_started = True  # type: ignore
+                    await asyncio.sleep(1.0)  # Just keep the task alive
                 else:
                     break
         except Exception as e:
             self.logger.error(f"MQTT loop error: {e}")
+        finally:
+            # Stop the loop when exiting
+            if self.mqtt_client and hasattr(self.mqtt_client, "_loop_started"):
+                self.mqtt_client.loop_stop()
+                delattr(self.mqtt_client, "_loop_started")
 
     def _on_mqtt_connect(
         self,
@@ -255,6 +274,10 @@ class MeshCoreMQTTBridge:
         """Handle MQTT connection."""
         if rc == 0:
             self.logger.info("Connected to MQTT broker")
+            # Resubscribe to command topics on reconnect
+            command_topic = f"{self.config.mqtt.topic_prefix}/command/+"
+            client.subscribe(command_topic, self.config.mqtt.qos)
+            self.logger.info(f"Subscribed to MQTT topic: {command_topic}")
         else:
             self.logger.error(f"Failed to connect to MQTT broker: {rc}")
 
@@ -267,7 +290,10 @@ class MeshCoreMQTTBridge:
         properties: Any = None,
     ) -> None:
         """Handle MQTT disconnection."""
-        self.logger.warning(f"Disconnected from MQTT broker: {rc}")
+        if rc != 0:
+            self.logger.warning(f"Unexpected MQTT disconnection: {rc}")
+        else:
+            self.logger.info("MQTT client disconnected cleanly")
 
     def _on_mqtt_message(
         self, client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage
@@ -300,6 +326,54 @@ class MeshCoreMQTTBridge:
         """Handle MQTT publish confirmation."""
         self.logger.debug(f"MQTT message published: {mid}")
 
+    def _on_mqtt_log(
+        self, client: mqtt.Client, userdata: Any, level: int, buf: str
+    ) -> None:
+        """Handle MQTT logging."""
+        # Map MQTT log levels to Python logging levels
+        if level == mqtt.MQTT_LOG_DEBUG:
+            self.logger.debug(f"MQTT: {buf}")
+        elif level == mqtt.MQTT_LOG_INFO:
+            self.logger.info(f"MQTT: {buf}")
+        elif level == mqtt.MQTT_LOG_NOTICE:
+            self.logger.info(f"MQTT: {buf}")
+        elif level == mqtt.MQTT_LOG_WARNING:
+            self.logger.warning(f"MQTT: {buf}")
+        elif level == mqtt.MQTT_LOG_ERR:
+            self.logger.error(f"MQTT: {buf}")
+        else:
+            self.logger.debug(f"MQTT ({level}): {buf}")
+
+    def _safe_mqtt_publish(
+        self,
+        topic: str,
+        payload: str,
+        qos: Optional[int] = None,
+        retain: Optional[bool] = None,
+    ) -> bool:
+        """Safely publish to MQTT with error handling."""
+        if not self.mqtt_client:
+            self.logger.error("MQTT client not initialized")
+            return False
+
+        try:
+            qos = qos if qos is not None else self.config.mqtt.qos
+            retain = retain if retain is not None else self.config.mqtt.retain
+
+            result = self.mqtt_client.publish(topic, payload, qos=qos, retain=retain)
+
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                self.logger.debug(f"Published to MQTT topic {topic}")
+                return True
+            else:
+                self.logger.error(
+                    f"Failed to publish to MQTT topic {topic}: {result.rc}"
+                )
+                return False
+        except Exception as e:
+            self.logger.error(f"Exception during MQTT publish to {topic}: {e}")
+            return False
+
     async def _forward_mqtt_to_meshcore(self, command_type: str, payload: str) -> None:
         """Forward MQTT command to MeshCore device."""
         if not self.meshcore:
@@ -327,10 +401,6 @@ class MeshCoreMQTTBridge:
 
     async def _on_meshcore_message(self, event_data: Any) -> None:
         """Handle messages from MeshCore device."""
-        if not self.mqtt_client:
-            self.logger.error("MQTT client not initialized")
-            return
-
         try:
             # Convert MeshCore message to MQTT topic and payload
             topic = f"{self.config.mqtt.topic_prefix}/message"
@@ -340,60 +410,46 @@ class MeshCoreMQTTBridge:
             else:
                 payload = str(event_data)
 
-            # Publish to MQTT
-            result = self.mqtt_client.publish(
-                topic, payload, qos=self.config.mqtt.qos, retain=self.config.mqtt.retain
-            )
-
-            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            # Publish to MQTT using safe method
+            if self._safe_mqtt_publish(topic, payload):
                 self.logger.debug(f"Published MeshCore message to MQTT: {topic}")
             else:
-                self.logger.error(f"Failed to publish to MQTT: {result.rc}")
+                self.logger.warning(
+                    f"Failed to publish MeshCore message to MQTT: {topic}"
+                )
 
         except Exception as e:
-            self.logger.error(f"Error publishing MeshCore message to MQTT: {e}")
+            self.logger.error(f"Error processing MeshCore message: {e}")
 
     async def _on_meshcore_connected(self, event_data: Any) -> None:
         """Handle MeshCore connection events."""
         self.logger.info("MeshCore device connected")
 
-        if self.mqtt_client:
-            status_topic = f"{self.config.mqtt.topic_prefix}/status"
-            self.mqtt_client.publish(
-                status_topic, "connected", qos=self.config.mqtt.qos, retain=True
-            )
+        status_topic = f"{self.config.mqtt.topic_prefix}/status"
+        self._safe_mqtt_publish(status_topic, "connected", retain=True)
 
     async def _on_meshcore_disconnected(self, event_data: Any) -> None:
         """Handle MeshCore disconnection events."""
         self.logger.warning("MeshCore device disconnected")
 
-        if self.mqtt_client:
-            status_topic = f"{self.config.mqtt.topic_prefix}/status"
-            self.mqtt_client.publish(
-                status_topic, "disconnected", qos=self.config.mqtt.qos, retain=True
-            )
+        status_topic = f"{self.config.mqtt.topic_prefix}/status"
+        self._safe_mqtt_publish(status_topic, "disconnected", retain=True)
 
     async def _on_meshcore_login_success(self, event_data: Any) -> None:
         """Handle MeshCore login success."""
         self.logger.info("MeshCore login successful")
         print("LOGIN SUCCESS:", event_data)
 
-        if self.mqtt_client:
-            status_topic = f"{self.config.mqtt.topic_prefix}/login"
-            self.mqtt_client.publish(
-                status_topic, "success", qos=self.config.mqtt.qos, retain=True
-            )
+        status_topic = f"{self.config.mqtt.topic_prefix}/login"
+        self._safe_mqtt_publish(status_topic, "success", retain=True)
 
     async def _on_meshcore_login_failed(self, event_data: Any) -> None:
         """Handle MeshCore login failure."""
         self.logger.error("MeshCore login failed")
         print("LOGIN FAILED:", event_data)
 
-        if self.mqtt_client:
-            status_topic = f"{self.config.mqtt.topic_prefix}/login"
-            self.mqtt_client.publish(
-                status_topic, "failed", qos=self.config.mqtt.qos, retain=True
-            )
+        status_topic = f"{self.config.mqtt.topic_prefix}/login"
+        self._safe_mqtt_publish(status_topic, "failed", retain=True)
 
     async def _on_meshcore_messages_waiting(self, event_data: Any) -> None:
         """Handle messages waiting events."""
@@ -405,48 +461,33 @@ class MeshCoreMQTTBridge:
         self.logger.info("Received MeshCore device info")
         print("DEVICE INFO:", event_data)
 
-        if self.mqtt_client:
-            topic = f"{self.config.mqtt.topic_prefix}/device_info"
-            payload = (
-                json.dumps(event_data)
-                if isinstance(event_data, dict)
-                else str(event_data)
-            )
-            self.mqtt_client.publish(
-                topic, payload, qos=self.config.mqtt.qos, retain=True
-            )
+        topic = f"{self.config.mqtt.topic_prefix}/device_info"
+        payload = (
+            json.dumps(event_data) if isinstance(event_data, dict) else str(event_data)
+        )
+        self._safe_mqtt_publish(topic, payload, retain=True)
 
     async def _on_meshcore_battery(self, event_data: Any) -> None:
         """Handle battery info events."""
         self.logger.debug("Received MeshCore battery info")
         print("BATTERY INFO:", event_data)
 
-        if self.mqtt_client:
-            topic = f"{self.config.mqtt.topic_prefix}/battery"
-            payload = (
-                json.dumps(event_data)
-                if isinstance(event_data, dict)
-                else str(event_data)
-            )
-            self.mqtt_client.publish(
-                topic, payload, qos=self.config.mqtt.qos, retain=self.config.mqtt.retain
-            )
+        topic = f"{self.config.mqtt.topic_prefix}/battery"
+        payload = (
+            json.dumps(event_data) if isinstance(event_data, dict) else str(event_data)
+        )
+        self._safe_mqtt_publish(topic, payload)
 
     async def _on_meshcore_new_contact(self, event_data: Any) -> None:
         """Handle new contact events."""
         self.logger.info("New MeshCore contact discovered")
         print("NEW CONTACT:", event_data)
 
-        if self.mqtt_client:
-            topic = f"{self.config.mqtt.topic_prefix}/new_contact"
-            payload = (
-                json.dumps(event_data)
-                if isinstance(event_data, dict)
-                else str(event_data)
-            )
-            self.mqtt_client.publish(
-                topic, payload, qos=self.config.mqtt.qos, retain=self.config.mqtt.retain
-            )
+        topic = f"{self.config.mqtt.topic_prefix}/new_contact"
+        payload = (
+            json.dumps(event_data) if isinstance(event_data, dict) else str(event_data)
+        )
+        self._safe_mqtt_publish(topic, payload)
 
     async def _on_meshcore_debug_event(self, event_data: Any) -> None:
         """Handle any other MeshCore events for debugging."""
@@ -455,13 +496,8 @@ class MeshCoreMQTTBridge:
         self.logger.debug(f"MeshCore debug event: {event_info}")
         print(f"DEBUG EVENT: {event_info}")
 
-        if self.mqtt_client:
-            topic = f"{self.config.mqtt.topic_prefix}/debug_event"
-            payload = (
-                json.dumps(event_data)
-                if isinstance(event_data, dict)
-                else str(event_data)
-            )
-            self.mqtt_client.publish(
-                topic, payload, qos=self.config.mqtt.qos, retain=False
-            )
+        topic = f"{self.config.mqtt.topic_prefix}/debug_event"
+        payload = (
+            json.dumps(event_data) if isinstance(event_data, dict) else str(event_data)
+        )
+        self._safe_mqtt_publish(topic, payload, retain=False)
