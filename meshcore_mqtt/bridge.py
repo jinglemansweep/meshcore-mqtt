@@ -259,7 +259,9 @@ class MeshCoreMQTTBridge:
         """Safely publish to MQTT with deduplication during reconnection."""
         try:
             # Create message hash for deduplication
-            message_key = hashlib.md5(f"{topic}:{payload}".encode()).hexdigest()
+            message_key = hashlib.md5(
+                f"{topic}:{payload}".encode(), usedforsecurity=False
+            ).hexdigest()
             current_time = time.time()
 
             # Clean expired entries
