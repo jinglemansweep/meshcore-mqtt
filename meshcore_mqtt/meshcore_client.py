@@ -292,6 +292,25 @@ class MeshCoreClientManager:
         self._event_handlers[event_name] = handler
         self.logger.debug(f"Registered handler for event: {event_name}")
 
+    async def _safe_command_call(
+        self,
+        command_func: Callable[..., Any],
+        command_type: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Safely call a MeshCore command with proper error handling."""
+        try:
+            return await command_func(*args, **kwargs)
+        except AttributeError as e:
+            self.logger.error(
+                f"Command '{command_type}' not supported by MeshCore version: {e}"
+            )
+            return None
+        except Exception as e:
+            self.logger.error(f"Error executing command '{command_type}': {e}")
+            return None
+
     async def send_command(self, command_type: str, command_data: Any) -> None:
         """Send command to MeshCore device."""
         if not self.meshcore:
@@ -314,10 +333,12 @@ class MeshCoreClientManager:
                         "send_msg requires 'destination' and 'message' fields"
                     )
                     return
-                result = await self.meshcore.commands.send_msg(destination, message)
+                result = await self._safe_command_call(
+                    self.meshcore.commands.send_msg, "send_msg", destination, message
+                )
 
             elif command_type == "send_channel_msg":
-                # Send channel message
+                # Send channel message - use send_msg with channel as destination
                 channel = command_data.get("channel")
                 message = command_data.get("message", "")
                 if not channel or not message:
@@ -325,15 +346,25 @@ class MeshCoreClientManager:
                         "send_channel_msg requires 'channel' and 'message' fields"
                     )
                     return
-                result = await self.meshcore.commands.send_channel_msg(channel, message)
+                # Channel messages might use the same send_msg method
+                result = await self._safe_command_call(
+                    self.meshcore.commands.send_msg,
+                    "send_channel_msg",
+                    channel,
+                    message,
+                )
 
             elif command_type == "device_query":
                 # Query device information
-                result = await self.meshcore.commands.send_device_query()
+                result = await self._safe_command_call(
+                    self.meshcore.commands.send_device_query, "device_query"
+                )
 
             elif command_type == "get_battery":
                 # Get battery status
-                result = await self.meshcore.commands.get_bat()
+                result = await self._safe_command_call(
+                    self.meshcore.commands.get_bat, "get_battery"
+                )
 
             elif command_type == "set_name":
                 # Set device name
@@ -341,7 +372,9 @@ class MeshCoreClientManager:
                 if not name:
                     self.logger.error("set_name requires 'name' field")
                     return
-                result = await self.meshcore.commands.set_name(name)
+                result = await self._safe_command_call(
+                    self.meshcore.commands.set_name, "set_name", name
+                )
 
             elif command_type == "set_tx_power":
                 # Set transmission power
@@ -349,7 +382,9 @@ class MeshCoreClientManager:
                 if power is None:
                     self.logger.error("set_tx_power requires 'power' field")
                     return
-                result = await self.meshcore.commands.set_tx_power(power)
+                result = await self._safe_command_call(
+                    self.meshcore.commands.set_tx_power, "set_tx_power", power
+                )
 
             elif command_type == "ping":
                 # Ping a node
@@ -357,7 +392,9 @@ class MeshCoreClientManager:
                 if not destination:
                     self.logger.error("ping requires 'destination' field")
                     return
-                result = await self.meshcore.commands.ping(destination)
+                result = await self._safe_command_call(
+                    self.meshcore.commands.ping, "ping", destination
+                )
 
             elif command_type == "traceroute":
                 # Traceroute to a node
@@ -365,15 +402,21 @@ class MeshCoreClientManager:
                 if not destination:
                     self.logger.error("traceroute requires 'destination' field")
                     return
-                result = await self.meshcore.commands.traceroute(destination)
+                result = await self._safe_command_call(
+                    self.meshcore.commands.traceroute, "traceroute", destination
+                )
 
             elif command_type == "advertise":
                 # Trigger device advertisement
-                result = await self.meshcore.commands.advertise()
+                result = await self._safe_command_call(
+                    self.meshcore.commands.advertise, "advertise"
+                )
 
             elif command_type == "get_contacts":
                 # Get contact list
-                result = await self.meshcore.commands.get_contacts()
+                result = await self._safe_command_call(
+                    self.meshcore.commands.get_contacts, "get_contacts"
+                )
 
             elif command_type == "get_contact_by_name":
                 # Find contact by name
@@ -381,7 +424,11 @@ class MeshCoreClientManager:
                 if not name:
                     self.logger.error("get_contact_by_name requires 'name' field")
                     return
-                result = await self.meshcore.commands.get_contact_by_name(name)
+                result = await self._safe_command_call(
+                    self.meshcore.commands.get_contact_by_name,
+                    "get_contact_by_name",
+                    name,
+                )
 
             elif command_type == "get_contact_by_key":
                 # Find contact by key prefix
@@ -389,8 +436,10 @@ class MeshCoreClientManager:
                 if not key_prefix:
                     self.logger.error("get_contact_by_key requires 'key_prefix' field")
                     return
-                result = await self.meshcore.commands.get_contact_by_key_prefix(
-                    key_prefix
+                result = await self._safe_command_call(
+                    self.meshcore.commands.get_contact_by_key_prefix,
+                    "get_contact_by_key",
+                    key_prefix,
                 )
 
             else:

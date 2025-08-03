@@ -54,15 +54,15 @@ class TestCommandForwarding:
         # Setup mock MeshCore instance
         mock_meshcore = MagicMock()
         mock_meshcore.commands = MagicMock()
-        mock_meshcore.commands.send_channel_msg = AsyncMock()
+        mock_meshcore.commands.send_msg = AsyncMock()
         meshcore_manager.meshcore = mock_meshcore
 
         # Test send_channel_msg command
         command_data = {"channel": "general", "message": "Hello group!"}
         await meshcore_manager.send_command("send_channel_msg", command_data)
 
-        # Verify the command was called
-        mock_meshcore.commands.send_channel_msg.assert_called_once_with(
+        # Verify the command was called (channel messages use send_msg)
+        mock_meshcore.commands.send_msg.assert_called_once_with(
             "general", "Hello group!"
         )
 
