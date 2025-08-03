@@ -1,9 +1,11 @@
 """Core bridge implementation between MeshCore and MQTT."""
 
 import asyncio
+import hashlib
 import json
 import logging
-from typing import Any, Optional
+import time
+from typing import Any, Dict, Optional
 
 from .config import Config
 from .meshcore_client import MeshCoreClientManager
@@ -26,6 +28,10 @@ class MeshCoreMQTTBridge:
         self._running = False
         self._tasks: list[asyncio.Task[Any]] = []
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # Message deduplication tracking
+        self._pending_messages: Dict[str, float] = {}
+        self._message_timeout = 30.0  # Seconds to track pending messages
 
     async def start(self) -> None:
         """Start the bridge service."""
@@ -247,6 +253,52 @@ class MeshCoreMQTTBridge:
         except Exception as e:
             self.logger.error(f"Error forwarding MQTT command to MeshCore: {e}")
 
+    def _safe_mqtt_publish(
+        self, topic: str, payload: str, retain: bool = False
+    ) -> None:
+        """Safely publish to MQTT with deduplication during reconnection."""
+        try:
+            # Create message hash for deduplication
+            message_key = hashlib.md5(f"{topic}:{payload}".encode()).hexdigest()
+            current_time = time.time()
+
+            # Clean expired entries
+            expired_keys = [
+                key
+                for key, timestamp in self._pending_messages.items()
+                if current_time - timestamp > self._message_timeout
+            ]
+            for key in expired_keys:
+                del self._pending_messages[key]
+
+            # Check if message is already being processed
+            if message_key in self._pending_messages:
+                time_since = current_time - self._pending_messages[message_key]
+                self.logger.debug(
+                    f"Duplicate message detected (sent {time_since:.1f}s ago), "
+                    f"skipping: {topic}"
+                )
+                return
+
+            # Mark message as pending
+            self._pending_messages[message_key] = current_time
+
+            # Attempt to publish
+            success = self.mqtt_manager.publish(topic, payload, retain=retain)
+
+            if success:
+                self.logger.info(f"✓ Published MeshCore message to MQTT: {topic}")
+                # Remove from pending on success
+                self._pending_messages.pop(message_key, None)
+            else:
+                self.logger.error(
+                    f"✗ Failed to publish MeshCore message to MQTT: {topic}"
+                )
+                # Keep in pending for deduplication during reconnection attempts
+
+        except Exception as e:
+            self.logger.error(f"Error in safe MQTT publish: {e}")
+
     def _on_meshcore_message(self, event_data: Any) -> None:
         """Handle messages from MeshCore device."""
         try:
@@ -257,14 +309,9 @@ class MeshCoreMQTTBridge:
             topic = f"{self.config.mqtt.topic_prefix}/message"
             payload = self.meshcore_manager.serialize_to_json(event_data)
 
-            # Publish to MQTT
+            # Publish to MQTT with safer logic
             self.logger.info(f"Processing MeshCore message for MQTT topic: {topic}")
-            if self.mqtt_manager.publish(topic, payload):
-                self.logger.info(f"✓ Published MeshCore message to MQTT: {topic}")
-            else:
-                self.logger.error(
-                    f"✗ Failed to publish MeshCore message to MQTT: {topic}"
-                )
+            self._safe_mqtt_publish(topic, payload)
 
         except Exception as e:
             self.logger.error(f"Error processing MeshCore message: {e}")
@@ -275,14 +322,14 @@ class MeshCoreMQTTBridge:
         self.meshcore_manager.update_activity()
 
         status_topic = f"{self.config.mqtt.topic_prefix}/status"
-        self.mqtt_manager.publish(status_topic, "connected", retain=True)
+        self._safe_mqtt_publish(status_topic, "connected", retain=True)
 
     def _on_meshcore_disconnected(self, event_data: Any) -> None:
         """Handle MeshCore disconnection events."""
         self.logger.warning("MeshCore device disconnected")
 
         status_topic = f"{self.config.mqtt.topic_prefix}/status"
-        self.mqtt_manager.publish(status_topic, "disconnected", retain=True)
+        self._safe_mqtt_publish(status_topic, "disconnected", retain=True)
 
     def _on_meshcore_login_success(self, event_data: Any) -> None:
         """Handle MeshCore login success."""
@@ -290,7 +337,7 @@ class MeshCoreMQTTBridge:
         print("LOGIN SUCCESS:", event_data)
 
         status_topic = f"{self.config.mqtt.topic_prefix}/login"
-        self.mqtt_manager.publish(status_topic, "success", retain=True)
+        self._safe_mqtt_publish(status_topic, "success", retain=True)
 
     def _on_meshcore_login_failed(self, event_data: Any) -> None:
         """Handle MeshCore login failure."""
@@ -298,7 +345,7 @@ class MeshCoreMQTTBridge:
         print("LOGIN FAILED:", event_data)
 
         status_topic = f"{self.config.mqtt.topic_prefix}/login"
-        self.mqtt_manager.publish(status_topic, "failed", retain=True)
+        self._safe_mqtt_publish(status_topic, "failed", retain=True)
 
     def _on_meshcore_messages_waiting(self, event_data: Any) -> None:
         """Handle messages waiting events."""
@@ -312,7 +359,7 @@ class MeshCoreMQTTBridge:
 
         topic = f"{self.config.mqtt.topic_prefix}/device_info"
         payload = self.meshcore_manager.serialize_to_json(event_data)
-        self.mqtt_manager.publish(topic, payload, retain=True)
+        self._safe_mqtt_publish(topic, payload, retain=True)
 
     def _on_meshcore_battery(self, event_data: Any) -> None:
         """Handle battery info events."""
@@ -321,7 +368,7 @@ class MeshCoreMQTTBridge:
 
         topic = f"{self.config.mqtt.topic_prefix}/battery"
         payload = self.meshcore_manager.serialize_to_json(event_data)
-        self.mqtt_manager.publish(topic, payload)
+        self._safe_mqtt_publish(topic, payload)
 
     def _on_meshcore_new_contact(self, event_data: Any) -> None:
         """Handle new contact events."""
@@ -330,7 +377,7 @@ class MeshCoreMQTTBridge:
 
         topic = f"{self.config.mqtt.topic_prefix}/new_contact"
         payload = self.meshcore_manager.serialize_to_json(event_data)
-        self.mqtt_manager.publish(topic, payload)
+        self._safe_mqtt_publish(topic, payload)
 
     def _on_meshcore_advertisement(self, event_data: Any) -> None:
         """Handle device advertisement events."""
@@ -339,7 +386,7 @@ class MeshCoreMQTTBridge:
 
         topic = f"{self.config.mqtt.topic_prefix}/advertisement"
         payload = self.meshcore_manager.serialize_to_json(event_data)
-        self.mqtt_manager.publish(topic, payload)
+        self._safe_mqtt_publish(topic, payload)
 
     # Compatibility methods for tests
     @property
