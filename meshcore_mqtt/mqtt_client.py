@@ -1,7 +1,6 @@
 """MQTT client management for MeshCore bridge."""
 
 import asyncio
-import json
 import logging
 import time
 import uuid
@@ -19,21 +18,21 @@ class MQTTClientManager:
         """Initialize MQTT client manager."""
         self.config = config
         self.logger = logging.getLogger(__name__)
-        
+
         # MQTT client
         self.client: Optional[mqtt.Client] = None
-        
+
         # Connection state
         self._connected = False
         self._reconnecting = False
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
         self._last_activity: Optional[float] = None
-        
+
         # Message handlers
         self._message_handlers: Dict[str, Callable[[str, str], None]] = {}
         self._default_command_handler: Optional[Callable[[str, str], None]] = None
-        
+
         # Running state
         self._running = False
 
@@ -45,10 +44,10 @@ class MQTTClientManager:
 
         self.logger.info("Starting MQTT client")
         self._running = True
-        
+
         # Create and configure client
         self.client = self._create_client()
-        
+
         # Connect with retry logic
         try:
             await self._connect_with_retry()
@@ -105,9 +104,7 @@ class MQTTClientManager:
 
         # Set authentication if provided
         if self.config.mqtt.username and self.config.mqtt.password:
-            client.username_pw_set(
-                self.config.mqtt.username, self.config.mqtt.password
-            )
+            client.username_pw_set(self.config.mqtt.username, self.config.mqtt.password)
 
         # Set connection parameters
         client.keepalive = 60
@@ -128,17 +125,22 @@ class MQTTClientManager:
                             self.config.mqtt.broker, self.config.mqtt.port, 60
                         ),
                     )
-                    self.logger.info(f"Connected to MQTT broker on attempt {attempt + 1}")
+                    self.logger.info(
+                        f"Connected to MQTT broker on attempt {attempt + 1}"
+                    )
                     return
             except Exception as e:
-                self.logger.warning(f"MQTT connection attempt {attempt + 1} failed: {e}")
+                self.logger.warning(
+                    f"MQTT connection attempt {attempt + 1} failed: {e}"
+                )
                 if attempt < max_retries - 1:
                     delay = min(2**attempt, 30)
                     self.logger.info(f"Retrying MQTT connection in {delay} seconds")
                     await asyncio.sleep(delay)
                 else:
                     raise RuntimeError(
-                        f"Failed to connect to MQTT broker after {max_retries} attempts: {e}"
+                        f"Failed to connect to MQTT broker after "
+                        f"{max_retries} attempts: {e}"
                     )
 
     async def _recover_connection(self) -> None:
@@ -155,7 +157,8 @@ class MQTTClientManager:
         self._reconnect_attempts += 1
 
         self.logger.warning(
-            f"Starting MQTT recovery (attempt {self._reconnect_attempts}/{self._max_reconnect_attempts})"
+            f"Starting MQTT recovery (attempt "
+            f"{self._reconnect_attempts}/{self._max_reconnect_attempts})"
         )
 
         try:
@@ -179,7 +182,9 @@ class MQTTClientManager:
             self.logger.info("✅ MQTT connection recovery successful")
 
         except Exception as e:
-            self.logger.error(f"❌ MQTT recovery attempt {self._reconnect_attempts} failed: {e}")
+            self.logger.error(
+                f"❌ MQTT recovery attempt {self._reconnect_attempts} failed: {e}"
+            )
             self._reconnecting = False
 
             # Schedule retry if we haven't hit max attempts
@@ -226,11 +231,13 @@ class MQTTClientManager:
 
         # Create and configure new client
         self.client = self._create_client()
-        self.client.reconnect_on_failure = False  # We handle reconnection
+        # We handle reconnection manually
 
         # Connect
-        self.logger.debug(f"Connecting to {self.config.mqtt.broker}:{self.config.mqtt.port}")
-        
+        self.logger.debug(
+            f"Connecting to {self.config.mqtt.broker}:{self.config.mqtt.port}"
+        )
+
         if self.client:
             await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -263,7 +270,7 @@ class MQTTClientManager:
             self.logger.info("Connected to MQTT broker")
             self._connected = True
             self._last_activity = time.time()
-            
+
             # Subscribe to command topics
             command_topic = f"{self.config.mqtt.topic_prefix}/command/+"
             client.subscribe(command_topic, self.config.mqtt.qos)
@@ -283,14 +290,18 @@ class MQTTClientManager:
         """Handle MQTT disconnection."""
         self._connected = False
         if rc != 0:
-            self.logger.warning(f"🔴 Unexpected MQTT disconnection: {mqtt.error_string(rc)} (code: {rc})")
+            self.logger.warning(
+                f"🔴 Unexpected MQTT disconnection: {mqtt.error_string(rc)} (code: {rc})"
+            )
             if self._running and not self._reconnecting:
                 self.logger.info("Triggering MQTT recovery from disconnect callback")
                 asyncio.create_task(self._recover_connection())
         else:
             self.logger.info("MQTT client disconnected cleanly")
 
-    def _on_message(self, client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage) -> None:
+    def _on_message(
+        self, client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage
+    ) -> None:
         """Handle incoming MQTT messages."""
         try:
             topic_parts = message.topic.split("/")
@@ -306,7 +317,9 @@ class MQTTClientManager:
                 elif self._default_command_handler:
                     self._default_command_handler(command_type, payload)
                 else:
-                    self.logger.warning(f"No handler registered for command: {command_type}")
+                    self.logger.warning(
+                        f"No handler registered for command: {command_type}"
+                    )
 
         except Exception as e:
             self.logger.error(f"Error processing MQTT message: {e}")
@@ -337,7 +350,9 @@ class MQTTClientManager:
         else:
             self.logger.debug(f"MQTT ({level}): {buf}")
 
-    def register_command_handler(self, command_type: str, handler: Callable[[str, str], None]) -> None:
+    def register_command_handler(
+        self, command_type: str, handler: Callable[[str, str], None]
+    ) -> None:
         """Register a handler for MQTT commands."""
         if command_type == "*":
             # Special case: register handler for all command types
@@ -360,9 +375,13 @@ class MQTTClientManager:
 
         try:
             if not self.client.is_connected():
-                self.logger.warning(f"MQTT client not connected, skipping publish to {topic}")
+                self.logger.warning(
+                    f"MQTT client not connected, skipping publish to {topic}"
+                )
                 if self._running:
-                    self.logger.debug("Triggering MQTT reconnection from publish method")
+                    self.logger.debug(
+                        "Triggering MQTT reconnection from publish method"
+                    )
                     asyncio.create_task(self._recover_connection())
                 return False
 
@@ -401,12 +420,16 @@ class MQTTClientManager:
                 asyncio.create_task(self._recover_connection())
             return False
         except Exception as e:
-            self.logger.error(f"Unexpected exception during MQTT publish to {topic}: {e}")
+            self.logger.error(
+                f"Unexpected exception during MQTT publish to {topic}: {e}"
+            )
             return False
 
     def is_connected(self) -> bool:
         """Check if MQTT client is connected."""
-        return self._connected and self.client is not None and self.client.is_connected()
+        return (
+            self._connected and self.client is not None and self.client.is_connected()
+        )
 
     def is_stale(self, timeout_seconds: int = 300) -> bool:
         """Check if connection appears stale."""

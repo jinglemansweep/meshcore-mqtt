@@ -26,21 +26,21 @@ class MeshCoreClientManager:
         """Initialize MeshCore client manager."""
         self.config = config
         self.logger = logging.getLogger(__name__)
-        
+
         # MeshCore components
         self.meshcore: Optional[MeshCore] = None
         self.connection_manager: Optional[ConnectionManager] = None
-        
+
         # Connection state
         self._connected = False
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
         self._last_activity: Optional[float] = None
         self._auto_fetch_running = False
-        
+
         # Event handlers
         self._event_handlers: Dict[str, Callable[[Any], None]] = {}
-        
+
         # Running state
         self._running = False
 
@@ -52,7 +52,7 @@ class MeshCoreClientManager:
 
         self.logger.info("Starting MeshCore client")
         self._running = True
-        
+
         # Setup MeshCore connection
         await self._setup_connection()
 
@@ -133,25 +133,29 @@ class MeshCoreClientManager:
         configured_events = set(self.config.meshcore.events)
 
         # Always subscribe to NO_MORE_MSGS to restart auto-fetching
-        try:
-            no_more_msgs_event = getattr(EventType, "NO_MORE_MSGS")
-            self.meshcore.subscribe(no_more_msgs_event, self._on_no_more_msgs)
-            self.logger.info("Subscribed to NO_MORE_MSGS event for auto-fetch restart")
-        except AttributeError:
-            self.logger.warning("NO_MORE_MSGS event type not available")
+        if self.meshcore:
+            try:
+                no_more_msgs_event = getattr(EventType, "NO_MORE_MSGS")
+                self.meshcore.subscribe(no_more_msgs_event, self._on_no_more_msgs)
+                self.logger.info(
+                    "Subscribed to NO_MORE_MSGS event for auto-fetch restart"
+                )
+            except AttributeError:
+                self.logger.warning("NO_MORE_MSGS event type not available")
 
         # Subscribe to configured events
         subscribed_events = set()
-        for event_name in configured_events:
-            try:
-                event_type = getattr(EventType, event_name)
-                # Use registered handler or default debug handler
-                handler = self._event_handlers.get(event_name, self._on_debug_event)
-                self.meshcore.subscribe(event_type, handler)
-                subscribed_events.add(event_name)
-                self.logger.info(f"Subscribed to event: {event_name}")
-            except AttributeError:
-                self.logger.warning(f"Unknown event type: {event_name}")
+        if self.meshcore:
+            for event_name in configured_events:
+                try:
+                    event_type = getattr(EventType, event_name)
+                    # Use registered handler or default debug handler
+                    handler = self._event_handlers.get(event_name, self._on_debug_event)
+                    self.meshcore.subscribe(event_type, handler)
+                    subscribed_events.add(event_name)
+                    self.logger.info(f"Subscribed to event: {event_name}")
+                except AttributeError:
+                    self.logger.warning(f"Unknown event type: {event_name}")
 
     async def _recover_connection(self) -> None:
         """Recover MeshCore connection."""
@@ -161,7 +165,8 @@ class MeshCoreClientManager:
 
         self._reconnect_attempts += 1
         self.logger.warning(
-            f"Starting MeshCore recovery (attempt {self._reconnect_attempts}/{self._max_reconnect_attempts})"
+            f"Starting MeshCore recovery (attempt "
+            f"{self._reconnect_attempts}/{self._max_reconnect_attempts})"
         )
 
         try:
@@ -202,11 +207,7 @@ class MeshCoreClientManager:
 
         while self._running:
             try:
-                if (
-                    self.meshcore
-                    and self._connected
-                    and not self._auto_fetch_running
-                ):
+                if self.meshcore and self._connected and not self._auto_fetch_running:
                     self.logger.info("Starting/restarting MeshCore auto-fetch")
                     try:
                         await self.meshcore.start_auto_message_fetching()
@@ -225,8 +226,10 @@ class MeshCoreClientManager:
     def _on_no_more_msgs(self, event_data: Any) -> None:
         """Handle NO_MORE_MSGS events - mark auto-fetch as stopped."""
         self.logger.info(f"Received NO_MORE_MSGS event: {event_data}")
-        self.logger.info("Auto-fetch has stopped - persistent maintenance will restart it")
-        
+        self.logger.info(
+            "Auto-fetch has stopped - persistent maintenance will restart it"
+        )
+
         self._auto_fetch_running = False
         self._last_activity = time.time()
 
@@ -282,7 +285,9 @@ class MeshCoreClientManager:
                 ensure_ascii=False,
             )
 
-    def register_event_handler(self, event_name: str, handler: Callable[[Any], None]) -> None:
+    def register_event_handler(
+        self, event_name: str, handler: Callable[[Any], None]
+    ) -> None:
         """Register an event handler for a specific MeshCore event."""
         self._event_handlers[event_name] = handler
         self.logger.debug(f"Registered handler for event: {event_name}")
@@ -294,9 +299,11 @@ class MeshCoreClientManager:
             return
 
         try:
-            self.logger.info(f"Sending command to MeshCore: {command_type} -> {command_data}")
+            self.logger.info(
+                f"Sending command to MeshCore: {command_type} -> {command_data}"
+            )
             # TODO: Implement actual MeshCore command forwarding based on API
-            
+
         except Exception as e:
             self.logger.error(f"Error sending command to MeshCore: {e}")
 
@@ -321,20 +328,22 @@ class MeshCoreClientManager:
                 hasattr(self.meshcore, "connection_manager")
                 and self.meshcore.connection_manager is not None
             )
-            
+
             if not healthy and self._connected:
                 self.logger.warning("MeshCore connection lost, attempting recovery")
                 self._connected = False
                 asyncio.create_task(self._recover_connection())
                 return False
-            
+
             if self.is_stale():
-                self.logger.warning("MeshCore connection appears stale, forcing reconnection")
+                self.logger.warning(
+                    "MeshCore connection appears stale, forcing reconnection"
+                )
                 asyncio.create_task(self._recover_connection())
                 return False
-                
+
             return healthy
-            
+
         except Exception:
             return False
 

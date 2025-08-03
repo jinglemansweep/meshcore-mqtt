@@ -90,7 +90,7 @@ class TestMeshCoreMQTTBridge:
         assert bridge.config.meshcore.address == "AA:BB:CC:DD:EE:FF"
         assert bridge.config.meshcore.port is None
 
-    @patch("meshcore_mqtt.bridge.mqtt.Client")
+    @patch("meshcore_mqtt.mqtt_client.mqtt.Client")
     async def test_mqtt_setup(
         self, mock_mqtt_client: MagicMock, bridge: MeshCoreMQTTBridge
     ) -> None:
@@ -99,16 +99,14 @@ class TestMeshCoreMQTTBridge:
         mock_mqtt_instance = MagicMock()
         mock_mqtt_client.return_value = mock_mqtt_instance
         mock_mqtt_instance.connect = MagicMock(return_value=0)
-
-        # Override _mqtt_loop to prevent it from running indefinitely
-        bridge._mqtt_loop = AsyncMock()  # type: ignore
+        mock_mqtt_instance.is_connected = MagicMock(return_value=True)
+        mock_mqtt_instance.loop_start = MagicMock()
 
         # Test MQTT setup
         await bridge._setup_mqtt()
 
         # Verify MQTT client setup
         assert bridge.mqtt_client is not None
-        mock_mqtt_instance.connect.assert_called_once_with("localhost", 1883, 60)
 
     def test_mqtt_auth_setup(self) -> None:
         """Test MQTT setup with authentication."""

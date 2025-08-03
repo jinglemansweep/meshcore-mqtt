@@ -5,7 +5,6 @@ import json
 import logging
 from typing import Any
 
-import paho.mqtt.client as mqtt
 
 from .config import Config
 from .meshcore_client import MeshCoreClientManager
@@ -91,17 +90,39 @@ class MeshCoreMQTTBridge:
         self.logger.info("Setting up event handlers")
 
         # Register MeshCore event handlers
-        self.meshcore_manager.register_event_handler("CONTACT_MSG_RECV", self._on_meshcore_message)
-        self.meshcore_manager.register_event_handler("CHANNEL_MSG_RECV", self._on_meshcore_message)
-        self.meshcore_manager.register_event_handler("CONNECTED", self._on_meshcore_connected)
-        self.meshcore_manager.register_event_handler("DISCONNECTED", self._on_meshcore_disconnected)
-        self.meshcore_manager.register_event_handler("LOGIN_SUCCESS", self._on_meshcore_login_success)
-        self.meshcore_manager.register_event_handler("LOGIN_FAILED", self._on_meshcore_login_failed)
-        self.meshcore_manager.register_event_handler("MESSAGES_WAITING", self._on_meshcore_messages_waiting)
-        self.meshcore_manager.register_event_handler("DEVICE_INFO", self._on_meshcore_device_info)
-        self.meshcore_manager.register_event_handler("BATTERY", self._on_meshcore_battery)
-        self.meshcore_manager.register_event_handler("NEW_CONTACT", self._on_meshcore_new_contact)
-        self.meshcore_manager.register_event_handler("ADVERTISEMENT", self._on_meshcore_advertisement)
+        self.meshcore_manager.register_event_handler(
+            "CONTACT_MSG_RECV", self._on_meshcore_message
+        )
+        self.meshcore_manager.register_event_handler(
+            "CHANNEL_MSG_RECV", self._on_meshcore_message
+        )
+        self.meshcore_manager.register_event_handler(
+            "CONNECTED", self._on_meshcore_connected
+        )
+        self.meshcore_manager.register_event_handler(
+            "DISCONNECTED", self._on_meshcore_disconnected
+        )
+        self.meshcore_manager.register_event_handler(
+            "LOGIN_SUCCESS", self._on_meshcore_login_success
+        )
+        self.meshcore_manager.register_event_handler(
+            "LOGIN_FAILED", self._on_meshcore_login_failed
+        )
+        self.meshcore_manager.register_event_handler(
+            "MESSAGES_WAITING", self._on_meshcore_messages_waiting
+        )
+        self.meshcore_manager.register_event_handler(
+            "DEVICE_INFO", self._on_meshcore_device_info
+        )
+        self.meshcore_manager.register_event_handler(
+            "BATTERY", self._on_meshcore_battery
+        )
+        self.meshcore_manager.register_event_handler(
+            "NEW_CONTACT", self._on_meshcore_new_contact
+        )
+        self.meshcore_manager.register_event_handler(
+            "ADVERTISEMENT", self._on_meshcore_advertisement
+        )
 
         # Register MQTT command handler
         self.mqtt_manager.register_command_handler("*", self._forward_mqtt_to_meshcore)
@@ -133,7 +154,7 @@ class MeshCoreMQTTBridge:
 
                 if not mqtt_healthy:
                     self.logger.debug("MQTT connection needs attention")
-                
+
                 if not meshcore_healthy:
                     self.logger.debug("MeshCore connection needs attention")
 
@@ -153,8 +174,10 @@ class MeshCoreMQTTBridge:
             else:
                 command_data = {"data": payload}
 
-            self.logger.info(f"Forwarding command to MeshCore: {command_type} -> {command_data}")
-            
+            self.logger.info(
+                f"Forwarding command to MeshCore: {command_type} -> {command_data}"
+            )
+
             # Forward to MeshCore manager
             asyncio.create_task(
                 self.meshcore_manager.send_command(command_type, command_data)
@@ -178,7 +201,9 @@ class MeshCoreMQTTBridge:
             if self.mqtt_manager.publish(topic, payload):
                 self.logger.info(f"✓ Published MeshCore message to MQTT: {topic}")
             else:
-                self.logger.error(f"✗ Failed to publish MeshCore message to MQTT: {topic}")
+                self.logger.error(
+                    f"✗ Failed to publish MeshCore message to MQTT: {topic}"
+                )
 
         except Exception as e:
             self.logger.error(f"Error processing MeshCore message: {e}")
@@ -257,24 +282,24 @@ class MeshCoreMQTTBridge:
 
     # Compatibility methods for tests
     @property
-    def meshcore(self):
+    def meshcore(self) -> Any:
         """Compatibility property for tests."""
         return self.meshcore_manager.meshcore
 
     @property
-    def connection_manager(self):
+    def connection_manager(self) -> Any:
         """Compatibility property for tests."""
         return self.meshcore_manager.connection_manager
 
     @property
-    def mqtt_client(self):
+    def mqtt_client(self) -> Any:
         """Compatibility property for tests."""
         return self.mqtt_manager.client
 
-    def _serialize_to_json(self, data):
+    def _serialize_to_json(self, data: Any) -> str:
         """Compatibility method for tests."""
         return self.meshcore_manager.serialize_to_json(data)
 
-    async def _setup_mqtt(self):
+    async def _setup_mqtt(self) -> None:
         """Compatibility method for tests."""
         await self.mqtt_manager.start()
