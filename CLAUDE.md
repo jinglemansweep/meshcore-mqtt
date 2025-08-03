@@ -73,6 +73,84 @@ The bridge publishes to structured MQTT topics:
 - `{prefix}/login` - Authentication status
 - `{prefix}/command/{type}` - Commands (subscribed)
 
+### MQTT Command System
+
+The bridge supports bidirectional communication via MQTT commands. Send commands to `{prefix}/command/{command_type}` with JSON payloads:
+
+**Message Commands**:
+- `send_msg` - Send direct message
+  ```json
+  {"destination": "node_id_or_contact_name", "message": "Hello!"}
+  ```
+- `send_channel_msg` - Send channel/group message
+  ```json
+  {"channel": "channel_name", "message": "Hello group!"}
+  ```
+
+**Device Commands**:
+- `device_query` - Query device information
+  ```json
+  {}
+  ```
+- `get_battery` - Get battery status
+  ```json
+  {}
+  ```
+- `set_name` - Set device name
+  ```json
+  {"name": "MyDevice"}
+  ```
+- `set_tx_power` - Set transmission power
+  ```json
+  {"power": 10}
+  ```
+- `advertise` - Trigger device advertisement
+  ```json
+  {}
+  ```
+
+**Network Commands**:
+- `ping` - Ping a node
+  ```json
+  {"destination": "node_id"}
+  ```
+- `traceroute` - Trace route to node
+  ```json
+  {"destination": "node_id"}
+  ```
+
+**Contact Commands**:
+- `get_contacts` - Get contact list
+  ```json
+  {}
+  ```
+- `get_contact_by_name` - Find contact by name
+  ```json
+  {"name": "John"}
+  ```
+- `get_contact_by_key` - Find contact by key prefix
+  ```json
+  {"key_prefix": "abcd1234"}
+  ```
+
+**Command Examples**:
+```bash
+# Send direct message
+mosquitto_pub -h localhost -t "meshcore/command/send_msg" \
+  -m '{"destination": "Alice", "message": "Hello Alice!"}'
+
+# Send channel message
+mosquitto_pub -h localhost -t "meshcore/command/send_channel_msg" \
+  -m '{"channel": "general", "message": "Hello everyone!"}'
+
+# Ping a node
+mosquitto_pub -h localhost -t "meshcore/command/ping" \
+  -m '{"destination": "node123"}'
+
+# Get device info
+mosquitto_pub -h localhost -t "meshcore/command/device_query" -m '{}'
+```
+
 ## Development Guidelines
 
 ### Code Quality Tools
