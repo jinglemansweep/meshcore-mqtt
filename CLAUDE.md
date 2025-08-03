@@ -1,5 +1,10 @@
 # MeshCore MQTT Bridge - Claude Context
 
+## Instructions for Claude
+
+- Run `pre-commit run --all-files` to ensure code quality and tests pass after making changes.
+- Activate and use Python virtual environment located at `./venv` before any development or running commands.
+
 ## Project Overview
 
 This project is a **MeshCore MQTT Bridge** - a robust Python application that bridges MeshCore mesh networking devices to MQTT brokers, enabling seamless integration with IoT platforms and message processing systems.
@@ -82,10 +87,6 @@ The bridge supports bidirectional communication via MQTT commands. Send commands
   ```json
   {"destination": "node_id_or_contact_name", "message": "Hello!"}
   ```
-- `send_channel_msg` - Send channel/group message
-  ```json
-  {"channel": "channel_name", "message": "Hello group!"}
-  ```
 
 **Device Commands**:
 - `device_query` - Query device information
@@ -100,37 +101,11 @@ The bridge supports bidirectional communication via MQTT commands. Send commands
   ```json
   {"name": "MyDevice"}
   ```
-- `set_tx_power` - Set transmission power
-  ```json
-  {"power": 10}
-  ```
-- `advertise` - Trigger device advertisement
-  ```json
-  {}
-  ```
 
 **Network Commands**:
 - `ping` - Ping a node
   ```json
   {"destination": "node_id"}
-  ```
-- `traceroute` - Trace route to node
-  ```json
-  {"destination": "node_id"}
-  ```
-
-**Contact Commands**:
-- `get_contacts` - Get contact list
-  ```json
-  {}
-  ```
-- `get_contact_by_name` - Find contact by name
-  ```json
-  {"name": "John"}
-  ```
-- `get_contact_by_key` - Find contact by key prefix
-  ```json
-  {"key_prefix": "abcd1234"}
   ```
 
 **Command Examples**:
@@ -138,10 +113,6 @@ The bridge supports bidirectional communication via MQTT commands. Send commands
 # Send direct message
 mosquitto_pub -h localhost -t "meshcore/command/send_msg" \
   -m '{"destination": "Alice", "message": "Hello Alice!"}'
-
-# Send channel message
-mosquitto_pub -h localhost -t "meshcore/command/send_channel_msg" \
-  -m '{"channel": "general", "message": "Hello everyone!"}'
 
 # Ping a node
 mosquitto_pub -h localhost -t "meshcore/command/ping" \

@@ -16,7 +16,7 @@ A robust bridge service that connects MeshCore devices to MQTT brokers, enabling
 
 - **Bidirectional Communication**: Full MQTT ↔ MeshCore command and message forwarding
 - **Multiple Connection Types**: Support for TCP, Serial, and BLE connections to MeshCore devices
-- **Comprehensive Command Support**: Send messages, manage devices, network operations, and contact management
+- **Command Support**: Send messages, query device information, and basic network operations
 - **Flexible Configuration**: JSON, YAML, environment variables, and command-line configuration options
 - **MQTT Integration**: Full MQTT client with authentication, QoS, and retention support
 - **Configurable Event Monitoring**: Subscribe to specific MeshCore event types for optimal performance
@@ -300,10 +300,6 @@ Send commands to MeshCore devices via MQTT using `{prefix}/command/{command_type
   ```json
   {"destination": "contact_name_or_node_id", "message": "Hello!"}
   ```
-- `{prefix}/command/send_channel_msg` - Send message to channel/group
-  ```json
-  {"channel": "channel_name", "message": "Hello everyone!"}
-  ```
 
 #### Device Management Commands
 - `{prefix}/command/device_query` - Query device information
@@ -318,37 +314,11 @@ Send commands to MeshCore devices via MQTT using `{prefix}/command/{command_type
   ```json
   {"name": "MyDevice"}
   ```
-- `{prefix}/command/set_tx_power` - Set transmission power
-  ```json
-  {"power": 10}
-  ```
-- `{prefix}/command/advertise` - Trigger device advertisement
-  ```json
-  {}
-  ```
 
 #### Network Commands
 - `{prefix}/command/ping` - Ping a specific node
   ```json
   {"destination": "node_id"}
-  ```
-- `{prefix}/command/traceroute` - Trace route to node
-  ```json
-  {"destination": "node_id"}
-  ```
-
-#### Contact Management Commands
-- `{prefix}/command/get_contacts` - Get contact list
-  ```json
-  {}
-  ```
-- `{prefix}/command/get_contact_by_name` - Find contact by name
-  ```json
-  {"name": "John"}
-  ```
-- `{prefix}/command/get_contact_by_key` - Find contact by key prefix
-  ```json
-  {"key_prefix": "abcd1234"}
   ```
 
 ### MQTT Command Examples
@@ -359,10 +329,6 @@ Using `mosquitto_pub` client:
 # Send direct message
 mosquitto_pub -h localhost -t "meshcore/command/send_msg" \
   -m '{"destination": "Alice", "message": "Hello Alice!"}'
-
-# Send channel message
-mosquitto_pub -h localhost -t "meshcore/command/send_channel_msg" \
-  -m '{"channel": "general", "message": "Hello everyone!"}'
 
 # Ping a node
 mosquitto_pub -h localhost -t "meshcore/command/ping" \

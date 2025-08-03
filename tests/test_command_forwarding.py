@@ -47,25 +47,6 @@ class TestCommandForwarding:
         # Verify the command was called
         mock_meshcore.commands.send_msg.assert_called_once_with("Alice", "Hello!")
 
-    async def test_send_channel_msg_command(
-        self, meshcore_manager: MeshCoreClientManager
-    ) -> None:
-        """Test send_channel_msg command forwarding."""
-        # Setup mock MeshCore instance
-        mock_meshcore = MagicMock()
-        mock_meshcore.commands = MagicMock()
-        mock_meshcore.commands.send_msg = AsyncMock()
-        meshcore_manager.meshcore = mock_meshcore
-
-        # Test send_channel_msg command
-        command_data = {"channel": "general", "message": "Hello group!"}
-        await meshcore_manager.send_command("send_channel_msg", command_data)
-
-        # Verify the command was called (channel messages use send_msg)
-        mock_meshcore.commands.send_msg.assert_called_once_with(
-            "general", "Hello group!"
-        )
-
     async def test_device_query_command(
         self, meshcore_manager: MeshCoreClientManager
     ) -> None:
@@ -180,15 +161,15 @@ class TestCommandForwarding:
         # Setup mock MeshCore instance
         mock_meshcore = MagicMock()
         mock_meshcore.commands = MagicMock()
-        mock_meshcore.commands.advertise = AsyncMock(return_value=None)
+        mock_meshcore.commands.send_device_query = AsyncMock(return_value=None)
         meshcore_manager.meshcore = mock_meshcore
 
         # Mock the update_activity method using setattr to avoid mypy error
         mock_update_activity = MagicMock()
         setattr(meshcore_manager, "update_activity", mock_update_activity)
 
-        # Test advertise command (no result object)
-        await meshcore_manager.send_command("advertise", {})
+        # Test device_query command (no result object)
+        await meshcore_manager.send_command("device_query", {})
 
         # Verify activity was updated
         mock_update_activity.assert_called_once()
