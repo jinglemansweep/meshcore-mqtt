@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from .config import Config
 from .meshcore_client import MeshCoreClientManager
@@ -25,6 +25,7 @@ class MeshCoreMQTTBridge:
         # State management
         self._running = False
         self._tasks: list[asyncio.Task[Any]] = []
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def start(self) -> None:
         """Start the bridge service."""
@@ -33,6 +34,9 @@ class MeshCoreMQTTBridge:
             return
 
         self.logger.info("Starting MeshCore MQTT Bridge")
+
+        # Store event loop reference for cross-thread access
+        self._event_loop = asyncio.get_running_loop()
 
         try:
             # Start MQTT client
@@ -178,27 +182,67 @@ class MeshCoreMQTTBridge:
             )
 
             # Forward to MeshCore manager
-            task = asyncio.create_task(
-                self.meshcore_manager.send_command(command_type, command_data),
-                name=f"meshcore_command_{command_type}",
-            )
-            # Store task reference to prevent garbage collection
-            self._tasks.append(task)
+            # This method can be called from MQTT callback threads, so we need
+            # to handle cross-thread async execution properly
+            try:
+                # Try to get the current running loop
+                loop = asyncio.get_running_loop()
+                # We're in the event loop thread, use create_task
+                task = asyncio.create_task(
+                    self.meshcore_manager.send_command(command_type, command_data),
+                    name=f"meshcore_command_{command_type}",
+                )
+                # Store task reference to prevent garbage collection
+                self._tasks.append(task)
 
-            # Remove task from list when done and handle any exceptions
-            def cleanup_task(completed_task: asyncio.Task[None]) -> None:
-                try:
-                    if completed_task in self._tasks:
-                        self._tasks.remove(completed_task)
-                    # Check for task exceptions to prevent warnings
-                    if completed_task.exception() is not None:
+                # Remove task from list when done and handle any exceptions
+                def cleanup_task(completed_task: asyncio.Task[None]) -> None:
+                    try:
+                        if completed_task in self._tasks:
+                            self._tasks.remove(completed_task)
+                        # Check for task exceptions to prevent warnings
+                        if completed_task.exception() is not None:
+                            self.logger.error(
+                                f"Command task failed: {completed_task.exception()}"
+                            )
+                    except Exception as e:
+                        self.logger.debug(f"Error in task cleanup: {e}")
+
+                task.add_done_callback(cleanup_task)
+
+            except RuntimeError:
+                # No event loop running, likely in MQTT callback thread
+                # Get the main event loop and schedule the coroutine from this thread
+                if hasattr(self, "_event_loop") and self._event_loop is not None:
+                    # Use stored loop reference
+                    loop = self._event_loop
+                else:
+                    # Try to get the main thread's event loop
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
                         self.logger.error(
-                            f"Command task failed: {completed_task.exception()}"
+                            "No event loop available for command forwarding"
                         )
-                except Exception as e:
-                    self.logger.debug(f"Error in task cleanup: {e}")
+                        return
 
-            task.add_done_callback(cleanup_task)
+                # Schedule coroutine from different thread
+                future = asyncio.run_coroutine_threadsafe(
+                    self.meshcore_manager.send_command(command_type, command_data), loop
+                )
+
+                # Add callback to handle completion/errors
+                def handle_result(fut: Any) -> None:
+                    try:
+                        # Get result to trigger any exceptions
+                        fut.result()
+                        self.logger.debug(
+                            f"Command {command_type} completed successfully"
+                        )
+                    except Exception as e:
+                        self.logger.error(f"Command {command_type} failed: {e}")
+
+                future.add_done_callback(handle_result)
 
         except Exception as e:
             self.logger.error(f"Error forwarding MQTT command to MeshCore: {e}")
