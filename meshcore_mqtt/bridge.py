@@ -178,8 +178,14 @@ class MeshCoreMQTTBridge:
             )
 
             # Forward to MeshCore manager
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self.meshcore_manager.send_command(command_type, command_data)
+            )
+            # Store task reference to prevent garbage collection
+            self._tasks.append(task)
+            # Remove task from list when done to prevent memory leak
+            task.add_done_callback(
+                lambda t: self._tasks.remove(t) if t in self._tasks else None
             )
 
         except Exception as e:

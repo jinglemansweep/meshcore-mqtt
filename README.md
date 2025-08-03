@@ -14,13 +14,16 @@ A robust bridge service that connects MeshCore devices to MQTT brokers, enabling
 
 ## Features
 
+- **Bidirectional Communication**: Full MQTT ↔ MeshCore command and message forwarding
 - **Multiple Connection Types**: Support for TCP, Serial, and BLE connections to MeshCore devices
+- **Comprehensive Command Support**: Send messages, manage devices, network operations, and contact management
 - **Flexible Configuration**: JSON, YAML, environment variables, and command-line configuration options
 - **MQTT Integration**: Full MQTT client with authentication, QoS, and retention support
-- **Async Architecture**: Built with Python asyncio for high performance
+- **Configurable Event Monitoring**: Subscribe to specific MeshCore event types for optimal performance
+- **Async Architecture**: Built with Python asyncio for high performance and concurrent operations
 - **Type Safety**: Full type annotations with mypy support
-- **Comprehensive Testing**: Unit tests with pytest and pytest-asyncio
-- **Code Quality**: Pre-commit hooks, black formatting, flake8 linting
+- **Comprehensive Testing**: 69+ unit tests with pytest and pytest-asyncio
+- **Code Quality**: Pre-commit hooks with isort, black formatting, flake8 linting, and automated testing
 
 ## Installation
 
@@ -276,28 +279,111 @@ meshcore:
 
 ## MQTT Topics
 
-The bridge publishes to different MQTT topics based on the configured event types. Using the configured topic prefix (default: "meshcore"):
+The bridge provides full bidirectional communication between MQTT and MeshCore devices. Using the configured topic prefix (default: "meshcore"):
 
-### Core Topics
+### Published Topics (MeshCore → MQTT)
+The bridge publishes to these topics based on configured MeshCore events:
+
 - `{prefix}/message` - Messages from CONTACT_MSG_RECV and CHANNEL_MSG_RECV events
 - `{prefix}/status` - Connection status from CONNECTED/DISCONNECTED events
-- `{prefix}/command/{type}` - Commands to MeshCore device (subscribed)
-
-### Event-Specific Topics
 - `{prefix}/login` - Authentication status from LOGIN_SUCCESS/LOGIN_FAILED events
 - `{prefix}/device_info` - Device information from DEVICE_INFO events
 - `{prefix}/battery` - Battery status from BATTERY events
 - `{prefix}/new_contact` - Contact discovery from NEW_CONTACT events
 - `{prefix}/advertisement` - Device advertisements from ADVERTISEMENT events
-- `{prefix}/debug_event` - Other events not specifically handled
 
-### Examples
+### Command Topics (MQTT → MeshCore)
+Send commands to MeshCore devices via MQTT using `{prefix}/command/{command_type}` with JSON payloads:
+
+#### Message Commands
+- `{prefix}/command/send_msg` - Send direct message to contact/node
+  ```json
+  {"destination": "contact_name_or_node_id", "message": "Hello!"}
+  ```
+- `{prefix}/command/send_channel_msg` - Send message to channel/group
+  ```json
+  {"channel": "channel_name", "message": "Hello everyone!"}
+  ```
+
+#### Device Management Commands
+- `{prefix}/command/device_query` - Query device information
+  ```json
+  {}
+  ```
+- `{prefix}/command/get_battery` - Get battery status
+  ```json
+  {}
+  ```
+- `{prefix}/command/set_name` - Set device name
+  ```json
+  {"name": "MyDevice"}
+  ```
+- `{prefix}/command/set_tx_power` - Set transmission power
+  ```json
+  {"power": 10}
+  ```
+- `{prefix}/command/advertise` - Trigger device advertisement
+  ```json
+  {}
+  ```
+
+#### Network Commands
+- `{prefix}/command/ping` - Ping a specific node
+  ```json
+  {"destination": "node_id"}
+  ```
+- `{prefix}/command/traceroute` - Trace route to node
+  ```json
+  {"destination": "node_id"}
+  ```
+
+#### Contact Management Commands
+- `{prefix}/command/get_contacts` - Get contact list
+  ```json
+  {}
+  ```
+- `{prefix}/command/get_contact_by_name` - Find contact by name
+  ```json
+  {"name": "John"}
+  ```
+- `{prefix}/command/get_contact_by_key` - Find contact by key prefix
+  ```json
+  {"key_prefix": "abcd1234"}
+  ```
+
+### MQTT Command Examples
+
+Using `mosquitto_pub` client:
+
+```bash
+# Send direct message
+mosquitto_pub -h localhost -t "meshcore/command/send_msg" \
+  -m '{"destination": "Alice", "message": "Hello Alice!"}'
+
+# Send channel message
+mosquitto_pub -h localhost -t "meshcore/command/send_channel_msg" \
+  -m '{"channel": "general", "message": "Hello everyone!"}'
+
+# Ping a node
+mosquitto_pub -h localhost -t "meshcore/command/ping" \
+  -m '{"destination": "node123"}'
+
+# Get device information
+mosquitto_pub -h localhost -t "meshcore/command/device_query" -m '{}'
+
+# Set device name
+mosquitto_pub -h localhost -t "meshcore/command/set_name" \
+  -m '{"name": "MyMeshDevice"}'
+```
+
+### Topic Examples
 - `meshcore/message` - Incoming contact/channel messages
 - `meshcore/status` - Device connection status ("connected"/"disconnected")
 - `meshcore/battery` - Battery level updates
 - `meshcore/device_info` - Device specifications and capabilities
 - `meshcore/advertisement` - Device advertisement broadcasts
-- `meshcore/command/send` - Send command to MeshCore (subscribed topic)
+- `meshcore/command/send_msg` - Send message command (subscribed)
+- `meshcore/command/ping` - Ping command (subscribed)
 
 ## Docker Deployment
 
