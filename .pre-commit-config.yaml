@@ -9,6 +9,12 @@ repos:
       - id: check-json
       - id: check-toml
 
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
   - repo: https://github.com/psf/black
     rev: 25.1.0
     hooks:
@@ -25,3 +31,12 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [pydantic, click, paho-mqtt]
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: system
+        pass_filenames: false
+        always_run: true

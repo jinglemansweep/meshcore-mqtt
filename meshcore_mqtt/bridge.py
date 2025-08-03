@@ -5,7 +5,6 @@ import json
 import logging
 from typing import Any
 
-
 from .config import Config
 from .meshcore_client import MeshCoreClientManager
 from .mqtt_client import MQTTClientManager
