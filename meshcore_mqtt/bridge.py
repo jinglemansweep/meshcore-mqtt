@@ -179,14 +179,26 @@ class MeshCoreMQTTBridge:
 
             # Forward to MeshCore manager
             task = asyncio.create_task(
-                self.meshcore_manager.send_command(command_type, command_data)
+                self.meshcore_manager.send_command(command_type, command_data),
+                name=f"meshcore_command_{command_type}",
             )
             # Store task reference to prevent garbage collection
             self._tasks.append(task)
-            # Remove task from list when done to prevent memory leak
-            task.add_done_callback(
-                lambda t: self._tasks.remove(t) if t in self._tasks else None
-            )
+
+            # Remove task from list when done and handle any exceptions
+            def cleanup_task(completed_task: asyncio.Task[None]) -> None:
+                try:
+                    if completed_task in self._tasks:
+                        self._tasks.remove(completed_task)
+                    # Check for task exceptions to prevent warnings
+                    if completed_task.exception() is not None:
+                        self.logger.error(
+                            f"Command task failed: {completed_task.exception()}"
+                        )
+                except Exception as e:
+                    self.logger.debug(f"Error in task cleanup: {e}")
+
+            task.add_done_callback(cleanup_task)
 
         except Exception as e:
             self.logger.error(f"Error forwarding MQTT command to MeshCore: {e}")
