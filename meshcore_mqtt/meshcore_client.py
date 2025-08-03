@@ -359,6 +359,22 @@ class MeshCoreClientManager:
                     self.meshcore.commands.set_name, "set_name", name
                 )
 
+            elif command_type == "send_chan_msg":
+                # Send channel message
+                channel = command_data.get("channel")
+                message = command_data.get("message", "")
+                if channel is None or not message:
+                    self.logger.error(
+                        "send_chan_msg requires 'channel' and 'message' fields"
+                    )
+                    return
+                result = await self._safe_command_call(
+                    self.meshcore.commands.send_chan_msg,
+                    "send_chan_msg",
+                    channel,
+                    message,
+                )
+
             elif command_type == "ping":
                 # Ping a node
                 destination = command_data.get("destination")

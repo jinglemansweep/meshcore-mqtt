@@ -87,6 +87,10 @@ The bridge supports bidirectional communication via MQTT commands. Send commands
   ```json
   {"destination": "node_id_or_contact_name", "message": "Hello!"}
   ```
+- `send_chan_msg` - Send channel message
+  ```json
+  {"channel": 0, "message": "Hello channel!"}
+  ```
 
 **Device Commands**:
 - `device_query` - Query device information
@@ -113,6 +117,10 @@ The bridge supports bidirectional communication via MQTT commands. Send commands
 # Send direct message
 mosquitto_pub -h localhost -t "meshcore/command/send_msg" \
   -m '{"destination": "Alice", "message": "Hello Alice!"}'
+
+# Send channel message
+mosquitto_pub -h localhost -t "meshcore/command/send_chan_msg" \
+  -m '{"channel": 0, "message": "Hello everyone on channel 0!"}'
 
 # Ping a node
 mosquitto_pub -h localhost -t "meshcore/command/ping" \

@@ -1,5 +1,6 @@
 """Tests for MQTT command forwarding to MeshCore."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -95,6 +96,25 @@ class TestCommandForwarding:
         # Verify the command was called
         mock_meshcore.commands.set_name.assert_called_once_with("MyDevice")
 
+    async def test_send_chan_msg_command(
+        self, meshcore_manager: MeshCoreClientManager
+    ) -> None:
+        """Test send_chan_msg command forwarding."""
+        # Setup mock MeshCore instance
+        mock_meshcore = MagicMock()
+        mock_meshcore.commands = MagicMock()
+        mock_meshcore.commands.send_chan_msg = AsyncMock()
+        meshcore_manager.meshcore = mock_meshcore
+
+        # Test send_chan_msg command
+        command_data = {"channel": 0, "message": "Hello channel!"}
+        await meshcore_manager.send_command("send_chan_msg", command_data)
+
+        # Verify the command was called
+        mock_meshcore.commands.send_chan_msg.assert_called_once_with(
+            0, "Hello channel!"
+        )
+
     async def test_missing_required_fields(
         self, meshcore_manager: MeshCoreClientManager
     ) -> None:
@@ -111,6 +131,33 @@ class TestCommandForwarding:
 
         # Verify the command was NOT called due to validation
         mock_meshcore.commands.send_msg.assert_not_called()
+
+        # Setup mock for send_chan_msg
+        mock_meshcore.commands.send_chan_msg = AsyncMock()
+
+        # Test send_chan_msg without required fields
+        command_data = {"message": "Hello channel!"}  # Missing channel
+        await meshcore_manager.send_command("send_chan_msg", command_data)
+
+        # Verify the command was NOT called due to validation
+        mock_meshcore.commands.send_chan_msg.assert_not_called()
+
+        # Test send_chan_msg with None channel
+        command_data_none: dict[str, Any] = {
+            "channel": None,
+            "message": "Hello channel!",
+        }
+        await meshcore_manager.send_command("send_chan_msg", command_data_none)
+
+        # Verify the command was NOT called due to validation
+        mock_meshcore.commands.send_chan_msg.assert_not_called()
+
+        # Test send_chan_msg without message
+        command_data_no_msg: dict[str, Any] = {"channel": 0}  # Missing message
+        await meshcore_manager.send_command("send_chan_msg", command_data_no_msg)
+
+        # Verify the command was NOT called due to validation
+        mock_meshcore.commands.send_chan_msg.assert_not_called()
 
     async def test_unknown_command_type(
         self, meshcore_manager: MeshCoreClientManager
