@@ -5,12 +5,15 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-try:
+if TYPE_CHECKING:
     import serial
-except ImportError:
-    serial = None
+else:
+    try:
+        import serial
+    except ImportError:
+        serial = None
 
 from meshcore import (
     BLEConnection,
