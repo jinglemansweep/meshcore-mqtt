@@ -178,9 +178,11 @@ class MeshCoreClientManager:
                 except Exception as e:
                     self.logger.debug(f"Error stopping old MeshCore connection: {e}")
 
-            # Wait before attempting reconnection
-            delay = min(self._reconnect_attempts * 2, 30)
-            self.logger.info(f"Waiting {delay}s before MeshCore reconnection")
+            # Wait before attempting reconnection with exponential backoff
+            delay = min(2 ** (self._reconnect_attempts - 1), 300)  # Max 5 minutes
+            self.logger.info(
+                f"Waiting {delay}s before MeshCore reconnection (exponential backoff)"
+            )
             await asyncio.sleep(delay)
 
             # Re-setup connection
@@ -193,8 +195,12 @@ class MeshCoreClientManager:
                 f"❌ MeshCore recovery attempt {self._reconnect_attempts} failed: {e}"
             )
             if self._reconnect_attempts < self._max_reconnect_attempts:
-                retry_delay = min(5 * self._reconnect_attempts, 60)
-                self.logger.info(f"Scheduling MeshCore retry in {retry_delay}s")
+                retry_delay = min(
+                    2**self._reconnect_attempts, 300
+                )  # Exponential backoff, max 5 minutes
+                self.logger.info(
+                    f"Scheduling MeshCore retry in {retry_delay}s (exponential backoff)"
+                )
                 await asyncio.sleep(retry_delay)
                 if self._running:
                     asyncio.create_task(self._recover_connection())
@@ -428,10 +434,16 @@ class MeshCoreClientManager:
             return False
 
         try:
-            healthy = (
+            # Check if MeshCore and connection manager exist
+            basic_healthy = (
                 hasattr(self.meshcore, "connection_manager")
                 and self.meshcore.connection_manager is not None
             )
+
+            # Enhanced health check for serial connections
+            connection_healthy = await self._check_connection_health()
+
+            healthy = basic_healthy and connection_healthy
 
             if not healthy and self._connected:
                 self.logger.warning("MeshCore connection lost, attempting recovery")
@@ -448,7 +460,63 @@ class MeshCoreClientManager:
 
             return healthy
 
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"Health check exception: {e}")
+            return False
+
+    async def _check_connection_health(self) -> bool:
+        """Check if the underlying connection is healthy, especially for serial."""
+        if not self.meshcore or not self.meshcore.connection_manager:
+            return False
+
+        try:
+            connection = self.meshcore.connection_manager.connection
+
+            # For serial connections, check if the port is still available
+            if hasattr(connection, "port") and hasattr(connection, "is_open"):
+                # This is likely a SerialConnection
+                if not connection.is_open:
+                    self.logger.warning("Serial connection is closed")
+                    return False
+
+                # Try to check if the serial port still exists
+                try:
+                    import serial.tools.list_ports
+
+                    available_ports = [
+                        port.device for port in serial.tools.list_ports.comports()
+                    ]
+                    if connection.port not in available_ports:
+                        self.logger.warning(
+                            f"Serial port {connection.port} no longer available"
+                        )
+                        return False
+                except ImportError:
+                    # pyserial not available for port checking, skip this test
+                    pass
+                except Exception as e:
+                    self.logger.debug(f"Error checking serial port availability: {e}")
+
+            # For TCP connections, check if socket is connected
+            elif hasattr(connection, "host") and hasattr(connection, "port"):
+                # This is likely a TCPConnection
+                # The underlying meshcore library should handle TCP connection health
+                pass
+
+            # For BLE connections
+            elif hasattr(connection, "address"):
+                # This is likely a BLEConnection
+                # The underlying meshcore library should handle BLE connection health
+                pass
+
+            # Additional check: try to verify the connection is responsive
+            # We can't easily do this without interfering with the meshcore library
+            # so we rely on the meshcore library's internal connection management
+
+            return True
+
+        except Exception as e:
+            self.logger.debug(f"Connection health check failed: {e}")
             return False
 
     def get_auto_fetch_task(self) -> asyncio.Task[None]:
