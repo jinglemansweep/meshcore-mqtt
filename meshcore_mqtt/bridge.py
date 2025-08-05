@@ -168,7 +168,7 @@ class MeshCoreMQTTBridge:
                     self.logger.debug("MeshCore connection needs attention")
 
                 # Sleep before next check
-                await asyncio.sleep(30)  # Check every 30 seconds
+                await asyncio.sleep(5)  # Check every 5 seconds for faster detection
 
             except Exception as e:
                 self.logger.error(f"Error in connection monitoring: {e}")
